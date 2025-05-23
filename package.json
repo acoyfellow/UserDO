@@ -1,0 +1,31 @@
+{
+  "name": "userdo",
+  "version": "0.0.0",
+  "devDependencies": {
+    "@tsndr/cloudflare-worker-jwt": "^3.1.5",
+    "hono": "^4.7.10",
+    "typescript": "5.8.3",
+    "wrangler": "4.12.0",
+    "z": "^1.0.9"
+  },
+  "cloudflare": {
+    "label": "UserDO",
+    "products": [
+      "Workers",
+      "Durable Objects",
+      "Auth"
+    ],
+    "categories": [
+      "storage",
+      "auth"
+    ]
+  },
+  "private": true,
+  "scripts": {
+    "cf-typegen": "wrangler types",
+    "check": "tsc && wrangler deploy --dry-run",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "start": "wrangler dev"
+  }
+}

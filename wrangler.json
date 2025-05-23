@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hello-world-do-template",
+  "main": "src/index.tsx",
+  "compatibility_date": "2025-04-01",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "upload_source_maps": true,
+  "migrations": [
+    {
+      "new_sqlite_classes": [
+        "UserDO"
+      ],
+      "tag": "v1"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "UserDO",
+        "name": "USER_DO"
+      }
+    ]
+  },
+  "observability": {
+    "enabled": true
+  }
+}
