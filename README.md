@@ -23,11 +23,14 @@ To use `userdo`, add your Durable Object binding to your `wrangler.jsonc`:
 {
   // ...other config...
   "main": "src/index.ts", // or your entry file
+  "vars": {
+    "JWT_SECRET": "your-jwt-secret"
+  },
   "durable_objects": {
     "bindings": [
       {
-        "name": "USERDO",         // This is the variable you'll use in env.USERDO
-        "class_name": "UserDO"    // This must match the exported class name
+        "name": "USERDO",  // This is the variable you'll use in env.USERDO
+        "class_name": "UserDO" // This must match the exported class name
       }
     ]
   }
@@ -37,7 +40,7 @@ To use `userdo`, add your Durable Object binding to your `wrangler.jsonc`:
 - Make sure your entry file (e.g., `src/index.ts`) exports your Durable Object class:
   ```ts
   export { UserDO };
-  export default {}; // or your fetch/app handler
+  export { UserDO };
   ```
 - Use ES Module syntax (not service-worker style).
 
