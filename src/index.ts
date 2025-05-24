@@ -45,6 +45,11 @@ async function verifyPassword(password: string, salt: string, expectedHash: stri
   return hash === expectedHash;
 }
 
+export interface Env {
+  JWT_SECRET: string;
+  USERDO: DurableObjectNamespace;
+}
+
 export class UserDO extends DurableObject {
   state: DurableObjectState;
   storage: DurableObjectStorage;
