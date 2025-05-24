@@ -165,9 +165,11 @@ export class UserDO extends DurableObject {
 
   async verifyToken({ token }: { token: string }) {
     try {
-      const { payload } = await jwt.verify(
+      const verify = await jwt.verify(
         token, this.env.JWT_SECRET
       ) as JwtData<JwtPayload, {}>;
+      if (!verify) throw new Error('Invalid token');
+      const { payload } = verify;
       if (!payload) throw new Error('Invalid token');
       const { sub, email } = payload as JwtPayload;
       if (!sub || !email) throw new Error('Invalid token');

@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "hello-world-do-template",
-  "main": "src/index.ts",
+  "name": "userdo",
+  "main": "src/index.tsx",
   "compatibility_date": "2025-04-01",
   "compatibility_flags": [
     "nodejs_compat"
@@ -19,9 +19,12 @@
     "bindings": [
       {
         "class_name": "UserDO",
-        "name": "USER_DO"
+        "name": "USEDO"
       }
     ]
+  },
+  "vars": {
+    "JWT_SECRET": "your-jwt-secret"
   },
   "observability": {
     "enabled": true
