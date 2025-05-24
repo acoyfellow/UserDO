@@ -1,12 +1,19 @@
 {
   "name": "userdo",
   "version": "0.0.2",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/acoyfellow/userdo.git"
+  },
   "devDependencies": {
     "@tsndr/cloudflare-worker-jwt": "^3.1.5",
     "hono": "^4.7.10",
     "typescript": "5.8.3",
     "wrangler": "4.12.0",
     "z": "^1.0.9"
+  },
+  "bugs": {
+    "url": "https://github.com/acoyfellow/userdo/issues"
   },
   "cloudflare": {
     "label": "UserDO",
@@ -20,6 +27,10 @@
       "auth"
     ]
   },
+  "files": [
+    "dist"
+  ],
+  "homepage": "https://github.com/acoyfellow/userdo#readme",
   "scripts": {
     "cf-typegen": "wrangler types",
     "check": "tsc && wrangler deploy --dry-run",
@@ -30,22 +41,7 @@
     "prepublishOnly": "npm run build",
     "release:patch": "npm version patch && npm publish",
     "release:minor": "npm version minor && npm publish",
-    "release:major": "npm version major && npm publish",
-    "prepare": "husky"
+    "release:major": "npm version major && npm publish"
   },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/acoyfellow/userdo.git"
-  },
-  "homepage": "https://github.com/acoyfellow/userdo#readme",
-  "bugs": {
-    "url": "https://github.com/acoyfellow/userdo/issues"
-  },
-  "types": "dist/index.d.ts",
-  "files": [
-    "dist"
-  ],
-  "dependencies": {
-    "husky": "^9.1.7"
-  }
+  "types": "dist/index.d.ts"
 }
