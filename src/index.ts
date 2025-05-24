@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { z } from 'zod';
-import jwt from '@tsndr/cloudflare-worker-jwt';
+import jwt, { JwtData } from '@tsndr/cloudflare-worker-jwt';
 
 // --- User Schema ---
 const UserSchema = z.object({
@@ -24,6 +24,11 @@ const InitSchema = UserSchema;
 const PASSWORD_CONFIG = {
   iterations: 310_000,
   saltLength: 16,
+};
+
+type JwtPayload = {
+  sub: string;
+  email: string;
 };
 
 async function hashPassword(password: string): Promise<{ hash: string; salt: string }> {
@@ -73,9 +78,18 @@ export class UserDO extends DurableObject {
     const id = this.state.id.toString();
     const createdAt = new Date().toISOString();
     const { hash, salt } = await hashPassword(password);
-    const user: User = { id, email, passwordHash: hash, salt, createdAt };
+    const user: User = {
+      id,
+      email,
+      passwordHash: hash,
+      salt,
+      createdAt
+    };
     await this.storage.put('data', user);
-    const token = await jwt.sign({ sub: user.id, email: user.email }, this.env.JWT_SECRET);
+    const token = await jwt.sign({
+      sub: user.id,
+      email: user.email
+    }, this.env.JWT_SECRET);
     return { user, token };
   }
 
@@ -148,6 +162,25 @@ export class UserDO extends DurableObject {
     await this.storage.put('data', user);
     return { ok: true };
   }
+
+  async verifyToken({ token }: { token: string }) {
+    try {
+      const { payload } = await jwt.verify(
+        token, this.env.JWT_SECRET
+      ) as JwtData<JwtPayload, {}>;
+      if (!payload) throw new Error('Invalid token');
+      const { sub, email } = payload as JwtPayload;
+      if (!sub || !email) throw new Error('Invalid token');
+
+      const user = await this.storage.get<User>('data');
+      if (!user) throw new Error('User not found');
+      // Todo? can also check if payload.sub === user.id, etc.
+      return { ok: true, user: { id: user.id, email: user.email } };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
 }
 
 export default {};
@@ -192,7 +225,4 @@ export async function migrateUserEmail({ env, oldEmail, newEmail }: { env: any; 
  *   // handle error
  * }
  *
- * // You can wrap the migration in a helper for atomicity and error handling.
  */
-
-// Two-tier system: You can use email or id as the DO id. For flexibility, you may want to store user data under both DOs (email and id) if you need both lookup types. For most use-cases, using email as the DO id is simplest for login/signup, and id for internal lookups. 
