@@ -1,2 +1,4 @@
-  #!/bin/sh
-  npm run release:minor
+   #!/bin/sh
+   . "$(dirname "$0")/_/husky.sh"
+
+   npm run release:minor
