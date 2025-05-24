@@ -26,7 +26,12 @@
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "start": "wrangler dev",
-    "publish": "npm publish --access public"
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "release:patch": "npm version patch && npm publish",
+    "release:minor": "npm version minor && npm publish",
+    "release:major": "npm version major && npm publish",
+    "prepare": "husky"
   },
   "repository": {
     "type": "git",
@@ -35,5 +40,12 @@
   "homepage": "https://github.com/acoyfellow/userdo#readme",
   "bugs": {
     "url": "https://github.com/acoyfellow/userdo/issues"
+  },
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "husky": "^9.1.7"
   }
 }

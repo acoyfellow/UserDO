@@ -21,7 +21,7 @@
     /* Enable error reporting in type-checked JavaScript files. */
     "checkJs": false,
     /* Disable emitting files from a compilation. */
-    "noEmit": true,
+    "noEmit": false,
     /* Ensure that each file can be safely transpiled without relying on other imports. */
     "isolatedModules": true,
     /* Allow 'import x from y' when a module doesn't have a default export. */
@@ -31,6 +31,9 @@
     /* Enable all strict type-checking options. */
     "strict": true,
     /* Skip type checking all .d.ts files. */
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "declaration": true,
+    "declarationDir": "dist",
+    "outDir": "dist"
   }
 }
