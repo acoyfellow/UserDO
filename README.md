@@ -39,7 +39,7 @@ To use `userdo`, add your Durable Object binding to your `wrangler.jsonc`:
 
 - Make sure your entry file (e.g., `src/index.ts`) exports your Durable Object class:
   ```ts
-  export { UserDO };
+  import { UserDO } from "userdo";
   export { UserDO };
   ```
 - Use ES Module syntax (not service-worker style).
