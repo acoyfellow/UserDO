@@ -1,6 +1,6 @@
 {
   "name": "userdo",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "devDependencies": {
     "@tsndr/cloudflare-worker-jwt": "^3.1.5",
     "hono": "^4.7.10",
