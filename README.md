@@ -1,4 +1,5 @@
-# userdo
+# UserDO
+
 
 A simple, secure, and ergonomic Durable Object for user authentication and management on Cloudflare Workers.
 
@@ -9,10 +10,36 @@ A simple, secure, and ergonomic Durable Object for user authentication and manag
 - 🧩 Easy migration, password change, and reset
 
 ## Install
-
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/acoyfellow/userdo)
 ```bash
-npm install userdo
+bun install userdo
 ```
+
+## Wrangler Configuration
+
+To use `userdo`, add your Durable Object binding to your `wrangler.jsonc`:
+
+```jsonc
+{
+  // ...other config...
+  "main": "src/index.ts", // or your entry file
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "USERDO",         // This is the variable you'll use in env.USERDO
+        "class_name": "UserDO"    // This must match the exported class name
+      }
+    ]
+  }
+}
+```
+
+- Make sure your entry file (e.g., `src/index.ts`) exports your Durable Object class:
+  ```ts
+  export { UserDO };
+  export default {}; // or your fetch/app handler
+  ```
+- Use ES Module syntax (not service-worker style).
 
 ## Usage
 
@@ -68,16 +95,31 @@ if (!result.ok) {
 
 ## API
 
-All methods throw on error and return `{ ok: true }` or `{ user, token }` as appropriate.
+| Function                                      | Input                                                                 | Output                                  | Description                                      |
+|------------------------------------------------|-----------------------------------------------------------------------|-----------------------------------------|--------------------------------------------------|
+| `signup({ email, password })`                  | `{ email: string, password: string }`                                 | `{ user, token }`                       | Create a new user. Throws if email exists or input is invalid. |
+| `login({ email, password })`                   | `{ email: string, password: string }`                                 | `{ user, token }`                       | Authenticate a user. Throws if credentials are invalid.        |
+| `changePassword({ oldPassword, newPassword })` | `{ oldPassword: string, newPassword: string }`                        | `{ ok: true }`                          | Change the user's password. Throws if old password is wrong or new password is invalid. |
+| `resetPassword({ newPassword })`               | `{ newPassword: string }`                                             | `{ ok: true }`                          | Reset the user's password (after verifying a reset token). Throws if new password is invalid. |
+| `raw()`                                       | –                                                                     | `user`                                  | Get the raw user data. Throws if user does not exist.           |
+| `init(user)`                                  | `user` (full user object, see below)                                  | `{ ok: true }`                          | Seed user data (for migration). Throws if input is invalid.     |
+| `deleteUser()`                                | –                                                                     | `{ ok: true }`                          | Delete the user data.                                           |
+| `migrateUserEmail({ env, oldEmail, newEmail })`| `{ env, oldEmail: string, newEmail: string }`                         | `{ ok: true }` or `{ ok: false, error }`| Atomically migrate a user to a new email. Returns error on failure. |
 
-- `signup({ email, password })`
-- `login({ email, password })`
-- `changePassword({ oldPassword, newPassword })`
-- `resetPassword({ newPassword })`
-- `raw()` – get user data
-- `init(user)` – seed user data (for migration)
-- `deleteUser()` – delete user data
-- `migrateUserEmail({ env, oldEmail, newEmail })` – atomic email migration helper
+**User object shape:**
+```ts
+{
+  id: string,
+  email: string,
+  passwordHash: string,
+  salt: string,
+  createdAt: string
+}
+```
+
+- All methods throw on error unless otherwise noted.
+- `token` is a JWT string for authentication.
+- `user` is the user object as above.
 
 ---
 

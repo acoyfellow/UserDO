@@ -20,12 +20,20 @@
       "auth"
     ]
   },
-  "private": true,
   "scripts": {
     "cf-typegen": "wrangler types",
     "check": "tsc && wrangler deploy --dry-run",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
-    "start": "wrangler dev"
+    "start": "wrangler dev",
+    "publish": "npm publish --access public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/acoyfellow/userdo.git"
+  },
+  "homepage": "https://github.com/acoyfellow/userdo#readme",
+  "bugs": {
+    "url": "https://github.com/acoyfellow/userdo/issues"
   }
 }

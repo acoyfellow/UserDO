@@ -145,6 +145,8 @@ export class UserDO extends DurableObject {
   }
 }
 
+export default {};
+
 // Atomic migration helper (outside the class)
 export async function migrateUserEmail({ env, oldEmail, newEmail }: { env: any; oldEmail: string; newEmail: string }) {
   const oldDO = env.USERDO.get(env.USERDO.idFromName(oldEmail));
