@@ -1,13 +1,20 @@
 # UserDO
 
-
-A simple, secure, and ergonomic Durable Object for user authentication and management on Cloudflare Workers.
+A simple, secure, and ergonomic Durable Object for user authentication, management, and per-user key-value (KV) storage on Cloudflare Workers.
 
 - 🔐 Password hashing (PBKDF2, WebCrypto)
 - 🪪 JWT-based authentication (Cloudflare-native)
 - 🏷️ Email as the Durable Object ID
 - 🛠️ Direct method calls (no fetch, no HTTP routing)
 - 🧩 Easy migration, password change, and reset
+- 🗄️ Secure per-user KV store for arbitrary data
+
+## What is this for?
+
+- User authentication and management in Cloudflare Workers, PartyKit, or any platform supporting Durable Objects.
+- No HTTP routing or fetch required—just call methods directly on your DO instance.
+- Secure, scalable, and easy to integrate with any backend.
+
 
 ## Install
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/acoyfellow/userdo)
@@ -113,12 +120,6 @@ const result = await userDO.get('data');
 - You can use any string as the key.
 - The value can be any serializable data (string, object, etc.).
 - Returns `{ ok: true }` for set, and `{ value }` for get.
-
-## What is this for?
-
-- User authentication and management in Cloudflare Workers, PartyKit, or any platform supporting Durable Objects.
-- No HTTP routing or fetch required—just call methods directly on your DO instance.
-- Secure, scalable, and easy to integrate with any backend.
 
 ## API
 

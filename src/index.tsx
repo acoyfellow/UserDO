@@ -62,7 +62,7 @@ app.post('/login', async (c) => {
 })
 
 // logout
-app.post('/logout', async (c) => {
+app.get('/logout', async (c) => {
   deleteCookie(c, 'token');
   return c.redirect('/');
 })
@@ -131,6 +131,10 @@ app.get('/', async (c) => {
       <body>
         <h1>UserDO Demo</h1>
 
+        <a href="https://github.com/acoyfellow/userdo">GitHub</a>
+        &nbsp;•&nbsp;
+        <a href="https://www.npmjs.com/package/userdo">NPM</a>
+
         {!user && <section>
           <form method="post" action="/signup">
             <fieldset>
@@ -156,15 +160,16 @@ app.get('/', async (c) => {
 
         {user && <section>
           <h2>Welcome {user.email}</h2>
+          <form method="get" action="/logout">
+            <button type="submit">Logout</button>
+          </form>
           <a href="/protected/profile">View Profile (protected)</a><br /><br />
 
           <details open>
             <summary>User Info</summary>
             <pre>{JSON.stringify(user, null, 2)}</pre>
           </details>
-          <form method="post" action="/logout">
-            <button type="submit">Logout</button>
-          </form>
+
           <form method="post" action="/data">
             <fieldset>
               <legend><h2>Set Data</h2></legend>
