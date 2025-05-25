@@ -26,6 +26,13 @@ const PASSWORD_CONFIG = {
   saltLength: 16,
 };
 
+const RESERVED_PREFIX = "__";
+const AUTH_DATA_KEY = "__user";
+
+function isReservedKey(key: string): boolean {
+  return key.startsWith(RESERVED_PREFIX);
+}
+
 type JwtPayload = {
   sub: string;
   email: string;
@@ -73,7 +80,7 @@ export class UserDO extends DurableObject {
       throw new Error('Invalid input: ' + JSON.stringify(parsed.error.flatten()));
     }
     // Check if user already exists
-    const existing = await this.storage.get<User>('data');
+    const existing = await this.storage.get<User>(AUTH_DATA_KEY);
     if (existing) throw new Error('Email already registered');
     const id = this.state.id.toString();
     const createdAt = new Date().toISOString();
@@ -85,7 +92,7 @@ export class UserDO extends DurableObject {
       salt,
       createdAt
     };
-    await this.storage.put('data', user);
+    await this.storage.put(AUTH_DATA_KEY, user);
     const token = await jwt.sign({
       sub: user.id,
       email: user.email
@@ -98,7 +105,7 @@ export class UserDO extends DurableObject {
     if (!parsed.success) {
       throw new Error('Invalid input: ' + JSON.stringify(parsed.error.flatten()));
     }
-    const user = await this.storage.get<User>('data');
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
     if (!user || user.email !== email) throw new Error('Invalid credentials');
     const ok = await verifyPassword(password, user.salt, user.passwordHash);
     if (!ok) throw new Error('Invalid credentials');
@@ -107,7 +114,7 @@ export class UserDO extends DurableObject {
   }
 
   async raw() {
-    const user = await this.storage.get<User>('data');
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
     if (!user) throw new Error('User not found');
     return user;
   }
@@ -117,18 +124,18 @@ export class UserDO extends DurableObject {
     if (!parsed.success) {
       throw new Error('Invalid input: ' + JSON.stringify(parsed.error.flatten()));
     }
-    await this.storage.put('data', user);
+    await this.storage.put(AUTH_DATA_KEY, user);
     return { ok: true };
   }
 
   async deleteUser() {
-    await this.storage.delete('data');
+    await this.storage.delete(AUTH_DATA_KEY);
     return { ok: true };
   }
 
   // Change password method
   async changePassword({ oldPassword, newPassword }: { oldPassword: string; newPassword: string }) {
-    const user = await this.storage.get<User>('data');
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
     if (!user) throw new Error('User not found');
     // Validate old password
     const ok = await verifyPassword(oldPassword, user.salt, user.passwordHash);
@@ -142,13 +149,13 @@ export class UserDO extends DurableObject {
     const { hash, salt } = await hashPassword(newPassword);
     user.passwordHash = hash;
     user.salt = salt;
-    await this.storage.put('data', user);
+    await this.storage.put(AUTH_DATA_KEY, user);
     return { ok: true };
   }
 
   // Reset password method (for use after verifying a reset token)
   async resetPassword({ newPassword }: { newPassword: string }) {
-    const user = await this.storage.get<User>('data');
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
     if (!user) throw new Error('User not found');
     // Validate new password
     const parsed = SignupSchema.shape.password.safeParse(newPassword);
@@ -159,7 +166,7 @@ export class UserDO extends DurableObject {
     const { hash, salt } = await hashPassword(newPassword);
     user.passwordHash = hash;
     user.salt = salt;
-    await this.storage.put('data', user);
+    await this.storage.put(AUTH_DATA_KEY, user);
     return { ok: true };
   }
 
@@ -174,7 +181,7 @@ export class UserDO extends DurableObject {
       const { sub, email } = payload as JwtPayload;
       if (!sub || !email) throw new Error('Invalid token');
 
-      const user = await this.storage.get<User>('data');
+      const user = await this.storage.get<User>(AUTH_DATA_KEY);
       if (!user) throw new Error('User not found');
       // Todo? can also check if payload.sub === user.id, etc.
       return { ok: true, user: { id: user.id, email: user.email } };
@@ -183,10 +190,30 @@ export class UserDO extends DurableObject {
     }
   }
 
+  async set(
+    key: string,
+    value: unknown
+  ): Promise<{ ok: boolean }> {
+    if (isReservedKey(key)) throw new Error("Key is reserved");
+    await this.storage.put(key, value);
+    return { ok: true };
+  }
+
+  async get(
+    key: string
+  ): Promise<{ value: unknown }> {
+    if (isReservedKey(key)) throw new Error("Key is reserved");
+    const value = await this.storage.get(key);
+    return { value };
+  }
+
 }
 
 // Atomic migration helper (outside the class)
-export async function migrateUserEmail({ env, oldEmail, newEmail }: { env: any; oldEmail: string; newEmail: string }) {
+export async function migrateUserEmail(
+  { env, oldEmail, newEmail }
+    : { env: any; oldEmail: string; newEmail: string }
+): Promise<{ ok: boolean; error?: string }> {
   const oldDO = env.USERDO.get(env.USERDO.idFromName(oldEmail));
   const newDO = env.USERDO.get(env.USERDO.idFromName(newEmail));
   try {
