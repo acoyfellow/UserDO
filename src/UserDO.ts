@@ -22,7 +22,7 @@ const InitSchema = UserSchema;
 
 // --- Password Hashing ---
 const PASSWORD_CONFIG = {
-  iterations: 310_000,
+  iterations: 100_000,
   saltLength: 16,
 };
 
