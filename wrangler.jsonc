@@ -19,7 +19,7 @@
     "bindings": [
       {
         "class_name": "UserDO",
-        "name": "USEDO"
+        "name": "USERDO"
       }
     ]
   },
