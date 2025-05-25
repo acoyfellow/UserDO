@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { getCookie, setCookie } from 'hono/cookie'
+import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { Env } from './UserDO'
 import { UserDO } from './UserDO'
 export { UserDO }
@@ -58,6 +58,12 @@ app.post('/login', async (c) => {
   }
 })
 
+// logout
+app.post('/logout', async (c) => {
+  deleteCookie(c, 'token');
+  return c.json({ ok: true })
+})
+
 // --- AUTH MIDDLEWARE ---
 app.use('/*', async (c, next) => {
   try {
@@ -87,7 +93,7 @@ app.get('/protected/profile', (c) => {
 
 // --- Minimal Frontend (JSX) ---
 app.get('/', async (c) => {
-  const user = c.get('user');
+  const user = c.get('user') || {};
 
   return c.html(
     <html>
@@ -104,7 +110,10 @@ app.get('/', async (c) => {
           <button type="submit">Login</button>
         </form>
         <a href="/protected/profile">View Profile (protected)</a>
-        <pre>{JSON.stringify(user, null, 2)}</pre>
+        {user.id && <pre>{JSON.stringify(user, null, 2)}</pre>}
+        {user.id && <form method="post" action="/logout">
+          <button type="submit">Logout</button>
+        </form>}
       </body>
     </html>
   )

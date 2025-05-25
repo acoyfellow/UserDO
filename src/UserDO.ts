@@ -185,8 +185,6 @@ export class UserDO extends DurableObject {
 
 }
 
-export default {};
-
 // Atomic migration helper (outside the class)
 export async function migrateUserEmail({ env, oldEmail, newEmail }: { env: any; oldEmail: string; newEmail: string }) {
   const oldDO = env.USERDO.get(env.USERDO.idFromName(oldEmail));
@@ -203,28 +201,4 @@ export async function migrateUserEmail({ env, oldEmail, newEmail }: { env: any; 
   }
 }
 
-/**
- * Usage Example (in your Worker or PartyServer):
- *
- * // Always use email as the DO ID:
- * const userDO = env.USERDO.get(env.USERDO.idFromName(email));
- *
- * // Signup
- * const { user, token } = await userDO.signup({ email, password });
- *
- * // Login
- * const { user: loggedInUser, token: loginToken } = await userDO.login({ email, password });
- *
- * // Change password
- * await userDO.changePassword({ oldPassword, newPassword });
- *
- * // Reset password (after verifying a reset token)
- * await userDO.resetPassword({ newPassword });
- *
- * // Change user email (migration):
- * const result = await migrateUserEmail({ env, oldEmail, newEmail });
- * if (!result.ok) {
- *   // handle error
- * }
- *
- */
+export default {};
