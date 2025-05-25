@@ -73,7 +73,7 @@ app.use('/*', async (c, next) => {
       await next();
     };
   } catch (e) {
-    next();
+    await next();
   };
 
 });
