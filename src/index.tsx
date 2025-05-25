@@ -29,7 +29,7 @@ app.post('/signup', async (c) => {
       path: '/',
       sameSite: 'Strict'
     })
-    return c.json({ ok: true, user: { id: user.id, email: user.email } })
+    return c.redirect('/');
   } catch (e: any) {
     return c.json({ error: e.message || "Signup error" }, 400)
   }
@@ -52,7 +52,7 @@ app.post('/login', async (c) => {
       path: '/',
       sameSite: 'Strict'
     })
-    return c.json({ ok: true, user: { id: user.id, email: user.email } })
+    return c.redirect('/');
   } catch (e: any) {
     return c.json({ error: e.message || "Login error" }, 400)
   }
@@ -61,7 +61,7 @@ app.post('/login', async (c) => {
 // logout
 app.post('/logout', async (c) => {
   deleteCookie(c, 'token');
-  return c.json({ ok: true })
+  return c.redirect('/');
 })
 
 // --- AUTH MIDDLEWARE ---
