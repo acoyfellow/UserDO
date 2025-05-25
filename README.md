@@ -11,7 +11,7 @@ A simple, secure, and ergonomic Durable Object for user authentication, manageme
 
 ## What is this for?
 
-- User authentication and management in Cloudflare Workers, PartyKit, or any platform supporting Durable Objects.
+- User authentication, management, and secure per-user data storage in Cloudflare Workers.
 - No HTTP routing or fetch required—just call methods directly on your DO instance.
 - Secure, scalable, and easy to integrate with any backend.
 
