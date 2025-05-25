@@ -97,6 +97,7 @@ app.get('/', async (c) => {
 
   return c.html(
     <html>
+      <title>UserDO Demo</title>
       <body>
         <h1>UserDO Demo</h1>
         <form method="post" action="/signup">
