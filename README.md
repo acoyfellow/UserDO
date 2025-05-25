@@ -90,6 +90,30 @@ if (!result.ok) {
 }
 ```
 
+### 7. Get/Set User Data
+
+You can store and retrieve custom data for each user using the `get` and `set` methods on the User Durable Object.
+
+#### Set Data
+
+```ts
+// Set a value for a key (e.g., 'data')
+const result = await userDO.set('data', 'your value');
+// result: { ok: true }
+```
+
+#### Get Data
+
+```ts
+// Retrieve the value for a key (e.g., 'data')
+const result = await userDO.get('data');
+// result: { value: 'your value' }
+```
+
+- You can use any string as the key.
+- The value can be any serializable data (string, object, etc.).
+- Returns `{ ok: true }` for set, and `{ value }` for get.
+
 ## What is this for?
 
 - User authentication and management in Cloudflare Workers, PartyKit, or any platform supporting Durable Objects.
