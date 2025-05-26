@@ -127,6 +127,7 @@ app.get('/', async (c) => {
             font-family: Avenir, Inter, Helvetica, Arial, sans-serif;
           }
         `}</style>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </head>
       <body>
         <h1>UserDO Demo</h1>
@@ -134,6 +135,8 @@ app.get('/', async (c) => {
         <a href="https://github.com/acoyfellow/userdo">GitHub</a>
         &nbsp;•&nbsp;
         <a href="https://www.npmjs.com/package/userdo">NPM</a>
+        &nbsp;•&nbsp;
+        <a href="https://x.com/acoyfellow.com">@acoyfellow</a>
 
         {!user && <section>
           <form method="post" action="/signup">
