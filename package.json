@@ -31,6 +31,17 @@
     "dist"
   ],
   "homepage": "https://github.com/acoyfellow/userdo#readme",
+  "keywords": [
+    "user",
+    "auth",
+    "durable",
+    "object",
+    "cloudflare",
+    "durableobjects",
+    "durableobject",
+    "durable-object",
+    "durable-objects"
+  ],
   "scripts": {
     "cf-typegen": "wrangler types",
     "check": "tsc && wrangler deploy --dry-run",
