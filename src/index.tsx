@@ -19,7 +19,7 @@ const app = new Hono<{ Bindings: Env, Variables: { user: User } }>()
 // --- AUTH ENDPOINTS ---
 app.post('/signup', async (c) => {
   const formData = await c.req.formData()
-  const email = formData.get('email') as string
+  const email = (formData.get('email') as string)?.toLowerCase();
   const password = formData.get('password') as string
   if (!email || !password) {
     return c.json({ error: "Missing fields" }, 400)
@@ -41,7 +41,7 @@ app.post('/signup', async (c) => {
 
 app.post('/login', async (c) => {
   const formData = await c.req.formData()
-  const email = formData.get('email') as string
+  const email = (formData.get('email') as string)?.toLowerCase();
   const password = formData.get('password') as string
   if (!email || !password) {
     return c.json({ error: "Missing fields" }, 400)
@@ -72,7 +72,7 @@ app.use('/*', async (c, next) => {
   try {
     const token = getCookie(c, 'token') || '';
     const payload = JSON.parse(atob(token.split('.')[1]));
-    let email = payload.email;
+    let email = payload.email?.toLowerCase();
     const userDO = getUserDO(c, email);
     const result = await userDO.verifyToken({ token });
     if (result.ok && result.user) {

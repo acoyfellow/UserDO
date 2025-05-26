@@ -75,6 +75,7 @@ export class UserDO extends DurableObject {
   }
 
   async signup({ email, password }: { email: string; password: string }) {
+    email = email.toLowerCase();
     const parsed = SignupSchema.safeParse({ email, password });
     if (!parsed.success) {
       throw new Error('Invalid input: ' + JSON.stringify(parsed.error.flatten()));
@@ -101,6 +102,7 @@ export class UserDO extends DurableObject {
   }
 
   async login({ email, password }: { email: string; password: string }) {
+    email = email.toLowerCase();
     const parsed = LoginSchema.safeParse({ email, password });
     if (!parsed.success) {
       throw new Error('Invalid input: ' + JSON.stringify(parsed.error.flatten()));
