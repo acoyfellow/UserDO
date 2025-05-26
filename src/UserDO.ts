@@ -94,9 +94,12 @@ export class UserDO extends DurableObject {
       createdAt
     };
     await this.storage.put(AUTH_DATA_KEY, user);
+    // Set JWT expiration to 7 days from now
+    const exp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
     const token = await jwt.sign({
       sub: user.id,
-      email: user.email
+      email: user.email,
+      exp
     }, this.env.JWT_SECRET);
     return { user, token };
   }
@@ -111,7 +114,9 @@ export class UserDO extends DurableObject {
     if (!user || user.email !== email) throw new Error('Invalid credentials');
     const ok = await verifyPassword(password, user.salt, user.passwordHash);
     if (!ok) throw new Error('Invalid credentials');
-    const token = await jwt.sign({ sub: user.id, email: user.email }, this.env.JWT_SECRET);
+    // Set JWT expiration to 7 days from now
+    const exp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
+    const token = await jwt.sign({ sub: user.id, email: user.email, exp }, this.env.JWT_SECRET);
     return { user, token };
   }
 
@@ -216,6 +221,8 @@ export async function migrateUserEmail(
   { env, oldEmail, newEmail }
     : { env: any; oldEmail: string; newEmail: string }
 ): Promise<{ ok: boolean; error?: string }> {
+  oldEmail = oldEmail.toLowerCase();
+  newEmail = newEmail.toLowerCase();
   const oldDO = env.USERDO.get(env.USERDO.idFromName(oldEmail));
   const newDO = env.USERDO.get(env.USERDO.idFromName(newEmail));
   try {

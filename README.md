@@ -152,3 +152,39 @@ const result = await userDO.get('data');
 ---
 
 **No HTTP endpoints. No fetch. Just Durable Object methods.**
+
+## Security & Production Deployment
+
+### Secret Key Handling
+- **Never commit your `JWT_SECRET` to version control.**
+- Store secrets in environment variables or your platform's secret manager (e.g., Cloudflare Workers Secrets, Vercel/Netlify/Render secrets, etc).
+- Rotate your JWT secret regularly and after any suspected compromise.
+
+### Production Safety Tips
+- Always use HTTPS in production.
+- Set `secure: true` and `httpOnly: true` for cookies (already set in this template).
+- Use a strong, random JWT secret (at least 32+ characters).
+- Consider adding rate limiting to authentication endpoints to prevent brute force attacks.
+- Add email verification and password reset token validation for better account security.
+- Set JWT expiry (`exp` claim) and handle token refresh/rotation as needed.
+- Regularly audit your dependencies for vulnerabilities.
+
+### Example: Setting a Secret in Cloudflare Workers
+```sh
+wrangler secret put JWT_SECRET
+```
+
+For more, see the [Cloudflare Workers docs on secrets](https://developers.cloudflare.com/workers/configuration/secrets/).
+
+## Potential Roadmap
+
+- [ ] Rate limiting for authentication endpoints
+- [ ] Email verification flow
+- [ ] Password reset with secure, time-limited tokens
+- [ ] Configurable JWT expiration and refresh tokens
+- [ ] Admin/user roles and permissions
+- [ ] Webhooks or event hooks for user actions (signup, login, etc.)
+- [ ] Multi-factor authentication (MFA)
+- [ ] Usage analytics and audit logging
+
+Have a feature request? Open an issue or PR!

@@ -62,7 +62,7 @@ app.post('/login', async (c) => {
 })
 
 // logout
-app.get('/logout', async (c) => {
+app.post('/logout', async (c) => {
   deleteCookie(c, 'token');
   return c.redirect('/');
 })
@@ -163,7 +163,7 @@ app.get('/', async (c) => {
 
         {user && <section>
           <h2>Welcome {user.email}</h2>
-          <form method="get" action="/logout">
+          <form method="post" action="/logout">
             <button type="submit">Logout</button>
           </form>
           <a href="/protected/profile">View Profile (protected)</a><br /><br />
