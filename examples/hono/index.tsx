@@ -1,7 +1,7 @@
 import { Hono, Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
-import { Env } from '../../src/UserDO'
-import { UserDO } from '../../src/UserDO'
+import { Env, UserDO } from '../../src/UserDO'
+
 export { UserDO }
 
 type User = {
@@ -26,8 +26,14 @@ app.post('/signup', async (c) => {
   }
   const userDO = getUserDO(c, email);
   try {
-    const { user, token } = await userDO.signup({ email, password })
+    const { user, token, refreshToken } = await userDO.signup({ email, password })
     setCookie(c, 'token', token, {
+      httpOnly: true,
+      secure: true,
+      path: '/',
+      sameSite: 'Strict'
+    })
+    setCookie(c, 'refreshToken', refreshToken, {
       httpOnly: true,
       secure: true,
       path: '/',
@@ -48,8 +54,14 @@ app.post('/login', async (c) => {
   }
   const userDO = getUserDO(c, email);
   try {
-    const { user, token } = await userDO.login({ email, password })
+    const { user, token, refreshToken } = await userDO.login({ email, password })
     setCookie(c, 'token', token, {
+      httpOnly: true,
+      secure: true,
+      path: '/',
+      sameSite: 'Strict'
+    })
+    setCookie(c, 'refreshToken', refreshToken, {
       httpOnly: true,
       secure: true,
       path: '/',
@@ -64,6 +76,7 @@ app.post('/login', async (c) => {
 // logout
 app.post('/logout', async (c) => {
   deleteCookie(c, 'token');
+  deleteCookie(c, 'refreshToken');
   return c.redirect('/');
 })
 
@@ -71,10 +84,22 @@ app.post('/logout', async (c) => {
 app.use('/*', async (c, next) => {
   try {
     const token = getCookie(c, 'token') || '';
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    let email = payload.email?.toLowerCase();
+    const refreshToken = getCookie(c, 'refreshToken') || '';
+    const accessPayload = JSON.parse(atob(token.split('.')[1]));
+    const refreshPayload = JSON.parse(atob(refreshToken.split('.')[1]));
+    let email = accessPayload.email?.toLowerCase() || refreshPayload.email?.toLowerCase();
     const userDO = getUserDO(c, email);
-    const result = await userDO.verifyToken({ token });
+    const result = await userDO.verifyToken({ token: token });
+    if (!result.ok) {
+      const refreshResult = await userDO.refreshToken({ refreshToken });
+      if (!refreshResult.token) return c.json({ error: 'Unauthorized' }, 401);
+      setCookie(c, 'token', refreshResult.token, {
+        httpOnly: true,
+        secure: true,
+        path: '/',
+        sameSite: 'Strict'
+      })
+    }
     if (result.ok && result.user) {
       c.set('user', result.user ?? undefined);
     };

@@ -9,6 +9,7 @@ const UserSchema = z.object({
   passwordHash: z.string(),
   salt: z.string(),
   createdAt: z.string(),
+  refreshTokens: z.array(z.string()).default([]),
 });
 type User = z.infer<typeof UserSchema>;
 
@@ -38,7 +39,14 @@ type JwtPayload = {
   email: string;
 };
 
-async function hashPassword(password: string): Promise<{ hash: string; salt: string }> {
+export interface Env {
+  JWT_SECRET: string;
+  USERDO: DurableObjectNamespace;
+}
+
+async function hashPassword(
+  password: string
+): Promise<{ hash: string; salt: string }> {
   const encoder = new TextEncoder();
   const saltBytes = crypto.getRandomValues(new Uint8Array(PASSWORD_CONFIG.saltLength));
   const salt = btoa(String.fromCharCode(...saltBytes));
@@ -48,7 +56,9 @@ async function hashPassword(password: string): Promise<{ hash: string; salt: str
   return { hash, salt };
 }
 
-async function verifyPassword(password: string, salt: string, expectedHash: string): Promise<boolean> {
+async function verifyPassword(
+  password: string, salt: string, expectedHash: string
+): Promise<boolean> {
   const encoder = new TextEncoder();
   const saltBytes = Uint8Array.from(atob(salt), c => c.charCodeAt(0));
   const key = await crypto.subtle.importKey('raw', encoder.encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
@@ -57,9 +67,25 @@ async function verifyPassword(password: string, salt: string, expectedHash: stri
   return hash === expectedHash;
 }
 
-export interface Env {
-  JWT_SECRET: string;
-  USERDO: DurableObjectNamespace;
+// Atomic migration helper (outside the class)
+export async function migrateUserEmail(
+  { env, oldEmail, newEmail }:
+    { env: Env; oldEmail: string; newEmail: string }
+): Promise<{ ok: boolean; error?: string }> {
+  oldEmail = oldEmail.toLowerCase();
+  newEmail = newEmail.toLowerCase();
+  const oldDO = env.USERDO.get(env.USERDO.idFromName(oldEmail));
+  const newDO = env.USERDO.get(env.USERDO.idFromName(newEmail));
+  try {
+    const user = await oldDO.raw();
+    user.email = newEmail;
+    await newDO.init(user);
+    await oldDO.deleteUser();
+    return { ok: true };
+  } catch (err) {
+    // Optionally, add rollback logic here
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 export class UserDO extends DurableObject {
@@ -74,7 +100,14 @@ export class UserDO extends DurableObject {
     this.env = env;
   }
 
-  async signup({ email, password }: { email: string; password: string }) {
+  async signup(
+    { email, password }:
+      { email: string; password: string }
+  ): Promise<{
+    user: User;
+    token: string;
+    refreshToken: string
+  }> {
     email = email.toLowerCase();
     const parsed = SignupSchema.safeParse({ email, password });
     if (!parsed.success) {
@@ -91,20 +124,43 @@ export class UserDO extends DurableObject {
       email,
       passwordHash: hash,
       salt,
-      createdAt
+      createdAt,
+      refreshTokens: []
     };
     await this.storage.put(AUTH_DATA_KEY, user);
-    // Set JWT expiration to 7 days from now
-    const exp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
+
+    // Generate access token (15 minutes)
+    const accessExp = Math.floor(Date.now() / 1000) + 15 * 60;
     const token = await jwt.sign({
       sub: user.id,
       email: user.email,
-      exp
+      exp: accessExp
     }, this.env.JWT_SECRET);
-    return { user, token };
+
+    // Generate refresh token (7 days)
+    const refreshExp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
+    const refreshToken = await jwt.sign({
+      sub: user.id,
+      type: 'refresh',
+      exp: refreshExp
+    }, this.env.JWT_SECRET);
+
+    // Store refresh token
+    if (!user.refreshTokens) user.refreshTokens = [];
+    user.refreshTokens.push(refreshToken);
+    await this.storage.put(AUTH_DATA_KEY, user);
+
+    return { user, token, refreshToken };
   }
 
-  async login({ email, password }: { email: string; password: string }) {
+  async login(
+    { email, password }:
+      { email: string; password: string }
+  ): Promise<{
+    user: User;
+    token: string;
+    refreshToken: string
+  }> {
     email = email.toLowerCase();
     const parsed = LoginSchema.safeParse({ email, password });
     if (!parsed.success) {
@@ -114,19 +170,40 @@ export class UserDO extends DurableObject {
     if (!user || user.email !== email) throw new Error('Invalid credentials');
     const ok = await verifyPassword(password, user.salt, user.passwordHash);
     if (!ok) throw new Error('Invalid credentials');
-    // Set JWT expiration to 7 days from now
-    const exp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
-    const token = await jwt.sign({ sub: user.id, email: user.email, exp }, this.env.JWT_SECRET);
-    return { user, token };
+
+    // Generate access token (15 minutes)
+    const accessExp = Math.floor(Date.now() / 1000) + 15 * 60;
+    const token = await jwt.sign({
+      sub: user.id,
+      email: user.email,
+      exp: accessExp
+    }, this.env.JWT_SECRET);
+
+    console.log('token', token);
+
+    // Generate refresh token (7 days)
+    const refreshExp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
+    const refreshToken = await jwt.sign({
+      sub: user.id,
+      type: 'refresh',
+      exp: refreshExp
+    }, this.env.JWT_SECRET);
+
+    // Store refresh token
+    if (!user.refreshTokens) user.refreshTokens = [];
+    user.refreshTokens.push(refreshToken);
+    await this.storage.put(AUTH_DATA_KEY, user);
+
+    return { user, token, refreshToken };
   }
 
-  async raw() {
+  async raw(): Promise<User> {
     const user = await this.storage.get<User>(AUTH_DATA_KEY);
     if (!user) throw new Error('User not found');
     return user;
   }
 
-  async init(user: User) {
+  async init(user: User): Promise<{ ok: boolean }> {
     const parsed = InitSchema.safeParse(user);
     if (!parsed.success) {
       throw new Error('Invalid input: ' + JSON.stringify(parsed.error.flatten()));
@@ -135,13 +212,16 @@ export class UserDO extends DurableObject {
     return { ok: true };
   }
 
-  async deleteUser() {
+  async deleteUser(): Promise<{ ok: boolean }> {
     await this.storage.delete(AUTH_DATA_KEY);
     return { ok: true };
   }
 
   // Change password method
-  async changePassword({ oldPassword, newPassword }: { oldPassword: string; newPassword: string }) {
+  async changePassword(
+    { oldPassword, newPassword }:
+      { oldPassword: string; newPassword: string }
+  ): Promise<{ ok: boolean }> {
     const user = await this.storage.get<User>(AUTH_DATA_KEY);
     if (!user) throw new Error('User not found');
     // Validate old password
@@ -161,7 +241,9 @@ export class UserDO extends DurableObject {
   }
 
   // Reset password method (for use after verifying a reset token)
-  async resetPassword({ newPassword }: { newPassword: string }) {
+  async resetPassword(
+    { newPassword }: { newPassword: string }
+  ): Promise<{ ok: boolean }> {
     const user = await this.storage.get<User>(AUTH_DATA_KEY);
     if (!user) throw new Error('User not found');
     // Validate new password
@@ -177,7 +259,12 @@ export class UserDO extends DurableObject {
     return { ok: true };
   }
 
-  async verifyToken({ token }: { token: string }) {
+  async verifyToken(
+    { token }: { token: string }
+  ): Promise<{
+    ok: boolean;
+    user?: { id: string; email: string }
+  }> {
     try {
       const verify = await jwt.verify(
         token, this.env.JWT_SECRET
@@ -214,26 +301,58 @@ export class UserDO extends DurableObject {
     return { value };
   }
 
-}
+  async refreshToken(
+    { refreshToken }: { refreshToken: string }
+  ): Promise<{ token: string }> {
+    try {
+      const verify = await jwt.verify(
+        refreshToken, this.env.JWT_SECRET
+      ) as JwtData<JwtPayload & { type: string }, {}>;
 
-// Atomic migration helper (outside the class)
-export async function migrateUserEmail(
-  { env, oldEmail, newEmail }
-    : { env: any; oldEmail: string; newEmail: string }
-): Promise<{ ok: boolean; error?: string }> {
-  oldEmail = oldEmail.toLowerCase();
-  newEmail = newEmail.toLowerCase();
-  const oldDO = env.USERDO.get(env.USERDO.idFromName(oldEmail));
-  const newDO = env.USERDO.get(env.USERDO.idFromName(newEmail));
-  try {
-    const user = await oldDO.raw();
-    user.email = newEmail;
-    await newDO.init(user);
-    await oldDO.deleteUser();
+      if (!verify || !verify.payload || verify.payload.type !== 'refresh') {
+        throw new Error('Invalid refresh token');
+      }
+
+      const user = await this.storage.get<User>(AUTH_DATA_KEY);
+      if (!user) throw new Error('User not found');
+
+      // Verify refresh token is in user's list
+      if (!user.refreshTokens.includes(refreshToken)) {
+        throw new Error('Refresh token not found');
+      }
+
+      // Generate new access token
+      const accessExp = Math.floor(Date.now() / 1000) + 15 * 60;
+      const token = await jwt.sign({
+        sub: user.id,
+        email: user.email,
+        exp: accessExp
+      }, this.env.JWT_SECRET);
+
+      return { token };
+    } catch (err) {
+      throw new Error('Invalid refresh token');
+    }
+  }
+
+  async revokeRefreshToken(
+    { refreshToken }: { refreshToken: string }
+  ): Promise<{ ok: boolean }> {
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
+    if (!user) throw new Error('User not found');
+
+    user.refreshTokens = user.refreshTokens.filter(token => token !== refreshToken);
+    await this.storage.put(AUTH_DATA_KEY, user);
     return { ok: true };
-  } catch (err) {
-    // Optionally, add rollback logic here
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  async revokeAllRefreshTokens(): Promise<{ ok: boolean }> {
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
+    if (!user) throw new Error('User not found');
+
+    user.refreshTokens = [];
+    await this.storage.put(AUTH_DATA_KEY, user);
+    return { ok: true };
   }
 }
 
