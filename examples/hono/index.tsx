@@ -1,7 +1,7 @@
 import { Hono, Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
-import { Env } from './UserDO'
-import { UserDO } from './UserDO'
+import { Env } from '../../src/UserDO'
+import { UserDO } from '../../src/UserDO'
 export { UserDO }
 
 type User = {

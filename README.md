@@ -5,16 +5,24 @@ A simple, secure, and ergonomic Durable Object for user authentication, manageme
 - 🔐 Password hashing (PBKDF2, WebCrypto)
 - 🪪 JWT-based authentication (Cloudflare-native)
 - 🏷️ Email as the Durable Object ID
-- 🛠️ Direct method calls (no fetch, no HTTP routing)
+- 🛠️ Direct method calls (no HTTP fetch between objects)
 - 🧩 Easy migration, password change, and reset
 - 🗄️ Secure per-user KV store for arbitrary data
 
+> **Note:**
+> - You still need to set up a router (e.g., with Hono, Express, or native Workers routing) to expose endpoints to your client or other services. 'No router' here means you don't need to define HTTP routes _inside_ your Durable Object class—just call its methods directly from your backend code.
+> - 'Call from anywhere' means you can invoke your Durable Object's methods from any part of your backend (not from the browser/client directly), as long as you have access to the Durable Object namespace in your environment.
+> - 'Wrap your class' refers to using your Durable Object class as a backend utility—see the [examples](./examples/) folder for a full working integration with a router and endpoints.
+
 ## What is this for?
 
-- User authentication, management, and secure per-user data storage in Cloudflare Workers.
-- No HTTP routing or fetch required—just call methods directly on your DO instance.
+- User authentication, management, and secure per-user data storage in Cloudflare Workers, PartyKit, or any platform supporting Durable Objects.
+- No HTTP routing or fetch required _inside_ your Durable Object—just call methods directly on your DO instance from your backend router.
 - Secure, scalable, and easy to integrate with any backend.
 
+## Quickstart Example
+
+See [`examples/`](./examples/) folder for a full working Hono example of how to set up a router and connect it to your UserDO class.
 
 ## Install
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/acoyfellow/userdo)

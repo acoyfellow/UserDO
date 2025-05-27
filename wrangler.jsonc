@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "userdo",
-  "main": "src/index.tsx",
+  "main": "examples/hono/index.tsx",
   "compatibility_date": "2025-04-01",
   "compatibility_flags": [
     "nodejs_compat"
