@@ -44,6 +44,10 @@ export interface Env {
   USERDO: DurableObjectNamespace;
 }
 
+const getDO = (env: Env, email: string) => (
+  env.USERDO.get(env.USERDO.idFromName(email.toLowerCase())) as unknown as UserDO
+);
+
 async function hashPassword(
   password: string
 ): Promise<{ hash: string; salt: string }> {
@@ -74,8 +78,8 @@ export async function migrateUserEmail(
 ): Promise<{ ok: boolean; error?: string }> {
   oldEmail = oldEmail.toLowerCase();
   newEmail = newEmail.toLowerCase();
-  const oldDO = env.USERDO.get(env.USERDO.idFromName(oldEmail));
-  const newDO = env.USERDO.get(env.USERDO.idFromName(newEmail));
+  const oldDO = getDO(env, oldEmail);
+  const newDO = getDO(env, newEmail);
   try {
     const user = await oldDO.raw();
     user.email = newEmail;
@@ -264,6 +268,7 @@ export class UserDO extends DurableObject {
   ): Promise<{
     ok: boolean;
     user?: { id: string; email: string }
+    error?: string
   }> {
     try {
       const verify = await jwt.verify(
