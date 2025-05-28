@@ -115,7 +115,7 @@ app.get("/data", async (c) => {
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
   const userDO = getUserDO(c, user.email);
   const result = await userDO.get('data');
-  return c.json({ ok: true, data: result.value });
+  return c.json({ ok: true, data: result });
 });
 
 app.post("/data", async (c) => {
