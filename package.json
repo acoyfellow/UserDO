@@ -10,6 +10,9 @@
     "zod": "^3.25.32",
     "hono": "^4.7.10"
   },
+  "peerDependencies": {
+    "@cloudflare/workers-types": "^4.20250528.0"
+  },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250528.0",
     "typescript": "5.8.3",
