@@ -300,10 +300,10 @@ export class UserDO extends DurableObject {
 
   async get(
     key: string
-  ): Promise<{ value: unknown }> {
+  ): Promise<unknown> {
     if (isReservedKey(key)) throw new Error("Key is reserved");
     const value = await this.storage.get(key);
-    return { value };
+    return value;
   }
 
   async refreshToken(
