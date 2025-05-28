@@ -7,10 +7,11 @@
   },
   "dependencies": {
     "@tsndr/cloudflare-worker-jwt": "^3.1.7",
-    "zod": "^3.25.30",
+    "zod": "^3.25.32",
     "hono": "^4.7.10"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250528.0",
     "typescript": "5.8.3",
     "wrangler": "4.17.0"
   },
