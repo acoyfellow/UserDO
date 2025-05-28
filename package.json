@@ -64,7 +64,8 @@
     "prepublishOnly": "npm run build",
     "release:patch": "npm version patch && npm publish",
     "release:minor": "npm version minor && npm publish",
-    "release:major": "npm version major && npm publish"
+    "release:major": "npm version major && npm publish",
+    "patch": "bun run cf-typegen && bun run check && bun run release:patch"
   },
   "types": "dist/src/index.d.ts"
 }
