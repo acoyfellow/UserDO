@@ -5,6 +5,7 @@
     "type": "git",
     "url": "https://github.com/acoyfellow/userdo.git"
   },
+  "main": "dist/src/index.js",
   "dependencies": {
     "@tsndr/cloudflare-worker-jwt": "^3.1.7",
     "zod": "^3.25.32",
@@ -14,9 +15,14 @@
     "@cloudflare/workers-types": "^4.20250528.0"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250528.0",
     "typescript": "5.8.3",
     "wrangler": "4.17.0"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/src/index.js",
+      "require": "./dist/src/index.js"
+    }
   },
   "bugs": {
     "url": "https://github.com/acoyfellow/userdo/issues"
@@ -60,12 +66,5 @@
     "release:minor": "npm version minor && npm publish",
     "release:major": "npm version major && npm publish"
   },
-  "types": "dist/src/index.d.ts",
-  "main": "dist/src/index.js",
-  "exports": {
-    ".": {
-      "import": "./dist/src/index.js",
-      "require": "./dist/src/index.js"
-    }
-  }
+  "types": "dist/src/index.d.ts"
 }

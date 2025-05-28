@@ -9,9 +9,11 @@
         "zod": "^3.25.32",
       },
       "devDependencies": {
-        "@cloudflare/workers-types": "^4.20250528.0",
         "typescript": "5.8.3",
         "wrangler": "4.17.0",
+      },
+      "peerDependencies": {
+        "@cloudflare/workers-types": "^4.20250528.0",
       },
     },
   },
