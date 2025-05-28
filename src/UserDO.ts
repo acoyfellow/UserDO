@@ -93,11 +93,11 @@ export async function migrateUserEmail(
 }
 
 export class UserDO extends DurableObject {
-  state: DurableObjectState;
-  storage: DurableObjectStorage;
-  env: any;
+  protected state: DurableObjectState;
+  protected storage: DurableObjectStorage;
+  protected env: Env;
 
-  constructor(state: DurableObjectState, env: any) {
+  constructor(state: DurableObjectState, env: Env) {
     super(state, env);
     this.state = state;
     this.storage = state.storage;
