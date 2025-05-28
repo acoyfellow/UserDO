@@ -11,17 +11,9 @@
     "zod": "^3.25.32",
     "hono": "^4.7.10"
   },
-  "peerDependencies": {
-    "@cloudflare/workers-types": "^4.20250528.0"
-  },
   "devDependencies": {
     "typescript": "5.8.3",
     "wrangler": "4.17.0"
-  },
-  "peerDependenciesMeta": {
-    "@cloudflare/workers-types": {
-      "optional": true
-    }
   },
   "exports": {
     ".": {

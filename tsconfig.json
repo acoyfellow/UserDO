@@ -1,5 +1,8 @@
 {
   "compilerOptions": {
+    "types": [
+      "./worker-configuration.d.ts"
+    ],
     /* Visit https://aka.ms/tsconfig.json to read more about this file */
     /* Set the JavaScript language version for emitted JavaScript and include compatible library declarations. */
     "target": "es2021",
@@ -35,9 +38,6 @@
     "declaration": true,
     "declarationDir": "dist",
     "outDir": "dist",
-    "rootDir": ".",
-    "types": [
-      "@cloudflare/workers-types"
-    ]
+    "rootDir": "."
   }
 }
