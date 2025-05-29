@@ -150,12 +150,43 @@ app.get('/', async (c) => {
         <style>{`
           body {
             font-family: Avenir, Inter, Helvetica, Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+          }
+          fieldset {
+            margin: 20px 0;
+            padding: 15px;
+          }
+          details {
+            margin: 10px 0;
+          }
+          input, textarea, select {
+            display: block;
+            margin: 5px 0 10px 0;
+            padding: 8px;
+            width: 100%;
+            box-sizing: border-box;
+            font-size: 16px;
+          }
+          button {
+            padding: 10px 15px;
+            margin: 5px 5px 5px 0;
+            font-size: 16px;
+          }
+          .post {
+            border: 1px solid #ddd;
+            margin: 10px 0;
+            padding: 15px;
+            border-radius: 5px;
           }
         `}</style>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </head>
       <body>
         <h1>UserDO Demo</h1>
+
+        <p>View extended demo <a href="https://userdo-hono-example.coey.dev">here</a></p>
 
         <a href="https://github.com/acoyfellow/userdo">GitHub</a>
         &nbsp;•&nbsp;

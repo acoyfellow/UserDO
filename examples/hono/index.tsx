@@ -274,10 +274,12 @@ app.get('/', async (c) => {
             padding: 8px;
             width: 100%;
             box-sizing: border-box;
+            font-size: 16px;
           }
           button {
             padding: 10px 15px;
             margin: 5px 5px 5px 0;
+            font-size: 16px;
           }
           .post {
             border: 1px solid #ddd;
@@ -290,7 +292,10 @@ app.get('/', async (c) => {
       </head>
       <body>
         <h1>UserDO Extended Demo</h1>
-        <p>This example shows how to <strong>extend UserDO</strong> with your own business logic.</p>
+        <p>
+          This example shows how to <strong>extend UserDO</strong> with your own business logic
+        </p>
+        <p>View original demo <a href="https://userdo.coey.dev">here</a>, and see the source code <a href="https://github.com/acoyfellow/userdo/tree/main/examples/hono">here</a></p>
 
         <a href="https://github.com/acoyfellow/userdo">GitHub</a>
         &nbsp;•&nbsp;
