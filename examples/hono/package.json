@@ -1,0 +1,27 @@
+{
+  "name": "userdo-hono-example",
+  "version": "1.0.0",
+  "description": "Example showing how to extend UserDO with Hono",
+  "main": "index.tsx",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.0.0",
+    "userdo": "latest"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240208.0",
+    "typescript": "^5.0.0",
+    "wrangler": "^3.0.0"
+  },
+  "keywords": [
+    "userdo",
+    "durable-objects",
+    "hono",
+    "cloudflare-workers",
+    "authentication"
+  ]
+}

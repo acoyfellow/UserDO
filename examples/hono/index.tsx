@@ -1,17 +1,63 @@
 import { Hono, Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
-import { Env, UserDO } from '../../src/UserDO'
+import { UserDO, Env as BaseEnv } from '../../src/UserDO'
 
-export { UserDO }
+// Extend UserDO with your own business logic
+export class MyAppDO extends UserDO {
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env);
+  }
+
+  // Add custom methods on top of UserDO's authentication
+  async createPost(title: string, content: string) {
+    const posts = (await this.get('posts') as any[]) || [];
+    const newPost = {
+      id: Date.now(),
+      title,
+      content,
+      createdAt: new Date().toISOString()
+    };
+    posts.push(newPost);
+    await this.set('posts', posts);
+    return newPost;
+  }
+
+  async getPosts() {
+    return (await this.get('posts') as any[]) || [];
+  }
+
+  async deletePost(postId: number) {
+    const posts = (await this.get('posts') as any[]) || [];
+    const filteredPosts = posts.filter((post: any) => post.id !== postId);
+    await this.set('posts', filteredPosts);
+    return { ok: true };
+  }
+
+  async updateUserPreferences(preferences: any) {
+    await this.set('preferences', preferences);
+    return { ok: true };
+  }
+
+  async getUserPreferences() {
+    return (await this.get('preferences') as any) || { theme: 'light', language: 'en' };
+  }
+}
+
+// Extend the base Env with your DO binding
+interface Env extends BaseEnv {
+  MY_APP_DO: DurableObjectNamespace;
+  JWT_SECRET: string;
+}
 
 type User = {
   id: string;
   email: string;
 }
 
-const getUserDO = (c: Context, email: string) => {
-  const userDOID = c.env.USERDO.idFromName(email);
-  return c.env.USERDO.get(userDOID) as unknown as UserDO;
+const getMyAppDO = (c: Context, email: string) => {
+  const myAppDOID = c.env.MY_APP_DO.idFromName(email);
+  const stub = c.env.MY_APP_DO.get(myAppDOID);
+  return stub as unknown as MyAppDO;
 }
 
 const app = new Hono<{ Bindings: Env, Variables: { user: User } }>()
@@ -24,9 +70,9 @@ app.post('/signup', async (c) => {
   if (!email || !password) {
     return c.json({ error: "Missing fields" }, 400)
   }
-  const userDO = getUserDO(c, email);
+  const myAppDO = getMyAppDO(c, email);
   try {
-    const { user, token, refreshToken } = await userDO.signup({ email, password })
+    const { user, token, refreshToken } = await myAppDO.signup({ email, password })
     setCookie(c, 'token', token, {
       httpOnly: true,
       secure: true,
@@ -52,9 +98,9 @@ app.post('/login', async (c) => {
   if (!email || !password) {
     return c.json({ error: "Missing fields" }, 400)
   }
-  const userDO = getUserDO(c, email);
+  const myAppDO = getMyAppDO(c, email);
   try {
-    const { user, token, refreshToken } = await userDO.login({ email, password })
+    const { user, token, refreshToken } = await myAppDO.login({ email, password })
     setCookie(c, 'token', token, {
       httpOnly: true,
       secure: true,
@@ -88,10 +134,10 @@ app.use('/*', async (c, next) => {
     const accessPayload = JSON.parse(atob(token.split('.')[1]));
     const refreshPayload = JSON.parse(atob(refreshToken.split('.')[1]));
     let email = accessPayload.email?.toLowerCase() || refreshPayload.email?.toLowerCase();
-    const userDO = getUserDO(c, email);
-    const result = await userDO.verifyToken({ token: token });
+    const myAppDO = getMyAppDO(c, email);
+    const result = await myAppDO.verifyToken({ token: token });
     if (!result.ok) {
-      const refreshResult = await userDO.refreshToken({ refreshToken });
+      const refreshResult = await myAppDO.refreshToken({ refreshToken });
       if (!refreshResult.token) return c.json({ error: 'Unauthorized' }, 401);
       setCookie(c, 'token', refreshResult.token, {
         httpOnly: true,
@@ -110,11 +156,12 @@ app.use('/*', async (c, next) => {
   };
 });
 
+// --- DATA ENDPOINTS (UserDO KV) ---
 app.get("/data", async (c) => {
   const user = c.get('user');
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
-  const userDO = getUserDO(c, user.email);
-  const result = await userDO.get('data');
+  const myAppDO = getMyAppDO(c, user.email);
+  const result = await myAppDO.get('data');
   return c.json({ ok: true, data: result });
 });
 
@@ -124,10 +171,64 @@ app.post("/data", async (c) => {
   const formData = await c.req.formData();
   const key = formData.get('key') as string;
   const value = formData.get('value') as string;
-  const userDO = getUserDO(c, user.email);
-  const result = await userDO.set(key, value);
+  const myAppDO = getMyAppDO(c, user.email);
+  const result = await myAppDO.set(key, value);
   if (!result.ok) return c.json({ error: 'Failed to set data' }, 400);
   return c.json({ ok: true, data: { key, value } });
+});
+
+// --- CUSTOM BUSINESS LOGIC ENDPOINTS ---
+
+// Posts endpoints (using our custom MyAppDO methods)
+app.get("/posts", async (c) => {
+  const user = c.get('user');
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const myAppDO = getMyAppDO(c, user.email);
+  const posts = await myAppDO.getPosts();
+  return c.json({ ok: true, posts });
+});
+
+app.post("/posts", async (c) => {
+  const user = c.get('user');
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const formData = await c.req.formData();
+  const title = formData.get('title') as string;
+  const content = formData.get('content') as string;
+  if (!title || !content) {
+    return c.json({ error: "Missing title or content" }, 400);
+  }
+  const myAppDO = getMyAppDO(c, user.email);
+  const post = await myAppDO.createPost(title, content);
+  return c.redirect('/');
+});
+
+app.delete("/posts/:id", async (c) => {
+  const user = c.get('user');
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const postId = parseInt(c.req.param('id'));
+  const myAppDO = getMyAppDO(c, user.email);
+  await myAppDO.deletePost(postId);
+  return c.json({ ok: true });
+});
+
+// Preferences endpoints
+app.get("/preferences", async (c) => {
+  const user = c.get('user');
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const myAppDO = getMyAppDO(c, user.email);
+  const preferences = await myAppDO.getUserPreferences();
+  return c.json({ ok: true, preferences });
+});
+
+app.post("/preferences", async (c) => {
+  const user = c.get('user');
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const formData = await c.req.formData();
+  const theme = formData.get('theme') as string;
+  const language = formData.get('language') as string;
+  const myAppDO = getMyAppDO(c, user.email);
+  await myAppDO.updateUserPreferences({ theme, language });
+  return c.redirect('/');
 });
 
 // Example protected endpoint
@@ -140,22 +241,56 @@ app.get('/protected/profile', (c) => {
 // --- Minimal Frontend (JSX) ---
 app.get('/', async (c) => {
   const user = c.get('user') || undefined;
-  const userDO = getUserDO(c, user?.email || '');
-  const data = await userDO.get("data");
+  let data, posts: any[] = [], preferences: any = { theme: 'light', language: 'en' };
+
+  if (user) {
+    const myAppDO = getMyAppDO(c, user.email);
+    data = await myAppDO.get("data");
+    posts = (await myAppDO.getPosts()) as any[];
+    preferences = (await myAppDO.getUserPreferences()) as any;
+  }
 
   return c.html(
     <html>
       <head>
-        <title>UserDO Demo</title>
+        <title>UserDO Extended Demo</title>
         <style>{`
           body {
             font-family: Avenir, Inter, Helvetica, Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+          }
+          fieldset {
+            margin: 20px 0;
+            padding: 15px;
+          }
+          details {
+            margin: 10px 0;
+          }
+          input, textarea, select {
+            display: block;
+            margin: 5px 0 10px 0;
+            padding: 8px;
+            width: 100%;
+            box-sizing: border-box;
+          }
+          button {
+            padding: 10px 15px;
+            margin: 5px 5px 5px 0;
+          }
+          .post {
+            border: 1px solid #ddd;
+            margin: 10px 0;
+            padding: 15px;
+            border-radius: 5px;
           }
         `}</style>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </head>
       <body>
-        <h1>UserDO Demo</h1>
+        <h1>UserDO Extended Demo</h1>
+        <p>This example shows how to <strong>extend UserDO</strong> with your own business logic.</p>
 
         <a href="https://github.com/acoyfellow/userdo">GitHub</a>
         &nbsp;•&nbsp;
@@ -168,9 +303,9 @@ app.get('/', async (c) => {
             <fieldset>
               <legend><h2>Sign Up</h2></legend>
               <label for="signup-email">Email:</label>
-              <input id="signup-email" name="email" type="email" placeholder="Email" required /><br />
+              <input id="signup-email" name="email" type="email" placeholder="Email" required />
               <label for="signup-password">Password:</label>
-              <input id="signup-password" name="password" type="password" placeholder="Password" required /><br />
+              <input id="signup-password" name="password" type="password" placeholder="Password" required />
               <button type="submit">Sign Up</button>
             </fieldset>
           </form>
@@ -178,9 +313,9 @@ app.get('/', async (c) => {
             <fieldset>
               <legend><h2>Login</h2></legend>
               <label for="login-email">Email:</label>
-              <input id="login-email" name="email" type="email" placeholder="Email" required /><br />
+              <input id="login-email" name="email" type="email" placeholder="Email" required />
               <label for="login-password">Password:</label>
-              <input id="login-password" name="password" type="password" placeholder="Password" required /><br />
+              <input id="login-password" name="password" type="password" placeholder="Password" required />
               <button type="submit">Login</button>
             </fieldset>
           </form>
@@ -193,30 +328,77 @@ app.get('/', async (c) => {
           </form>
           <a href="/protected/profile">View Profile (protected)</a><br /><br />
 
-          <details open>
+          <details>
             <summary>User Info</summary>
             <pre>{JSON.stringify(user, null, 2)}</pre>
           </details>
 
+          {/* UserDO KV Storage Demo */}
           <form method="post" action="/data">
             <fieldset>
-              <legend><h2>Set Data</h2></legend>
+              <legend><h2>UserDO KV Storage</h2></legend>
               <label for="data-key">Key:</label>
-              <input id="data-key" name="key" type="text" placeholder="Key" value="data" readonly required /><br />
+              <input id="data-key" name="key" type="text" placeholder="Key" value="data" readonly required />
               <label for="data-value">Value:</label>
-              <input id="data-value" name="value" type="text" placeholder="Value" required /><br />
+              <input id="data-value" name="value" type="text" placeholder="Value" required />
               <button type="submit">Set Data</button>
-              <hr />
               {data && (
-                <details open>
-                  <summary>Data</summary>
+                <details>
+                  <summary>Stored Data</summary>
                   <pre>{JSON.stringify(data, null, 2)}</pre>
                 </details>
               )}
             </fieldset>
           </form>
-        </section>}
 
+          {/* Custom Business Logic: Posts */}
+          <form method="post" action="/posts">
+            <fieldset>
+              <legend><h2>Create Post (Custom Logic)</h2></legend>
+              <label for="post-title">Title:</label>
+              <input id="post-title" name="title" type="text" placeholder="Post title" required />
+              <label for="post-content">Content:</label>
+              <textarea id="post-content" name="content" placeholder="Post content" required rows={4}></textarea>
+              <button type="submit">Create Post</button>
+            </fieldset>
+          </form>
+
+          {posts && posts.length > 0 && (
+            <fieldset>
+              <legend><h2>Your Posts</h2></legend>
+              {posts.map((post: any) => (
+                <div class="post" key={post.id}>
+                  <h3>{post.title}</h3>
+                  <p>{post.content}</p>
+                  <small>Created: {new Date(post.createdAt).toLocaleString()}</small>
+                </div>
+              ))}
+            </fieldset>
+          )}
+
+          {/* User Preferences */}
+          <form method="post" action="/preferences">
+            <fieldset>
+              <legend><h2>User Preferences</h2></legend>
+              <label for="theme">Theme:</label>
+              <select id="theme" name="theme" value={preferences?.theme || 'light'}>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+              <label for="language">Language:</label>
+              <select id="language" name="language" value={preferences?.language || 'en'}>
+                <option value="en">English</option>
+                <option value="es">Spanish</option>
+                <option value="fr">French</option>
+              </select>
+              <button type="submit">Update Preferences</button>
+              <details>
+                <summary>Current Preferences</summary>
+                <pre>{JSON.stringify(preferences, null, 2)}</pre>
+              </details>
+            </fieldset>
+          </form>
+        </section>}
 
       </body>
     </html>
