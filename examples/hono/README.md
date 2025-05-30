@@ -47,29 +47,76 @@ await myAppDO.createPost(title, content);   // Your custom logic
 - `index.tsx` - Main Hono app with extended UserDO class
 - `wrangler.jsonc` - Configuration showing single DO binding
 - `package.json` - Dependencies
+- `tsconfig.json` - TypeScript configuration
 
-## Running This Example
+## 🚀 Quick Start (Copy-Paste Ready!)
 
-1. **Install dependencies**:
+### Prerequisites
+- [Bun](https://bun.sh) or [Node.js](https://nodejs.org)
+- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/)
+- Cloudflare account
+
+### Step 1: Copy the Files
+Copy this entire `examples/hono/` directory to your project:
+```bash
+# Copy the example
+cp -r examples/hono my-userdo-app
+cd my-userdo-app
+```
+
+### Step 2: Install Dependencies
+```bash
+bun install
+# or: npm install
+```
+
+### Step 3: Set Up Authentication Secret
+```bash
+# Generate and set a secure JWT secret
+wrangler secret put JWT_SECRET
+# When prompted, enter a random 32+ character string
+```
+
+> **💡 Tip**: Use `openssl rand -base64 32` to generate a secure secret
+
+### Step 4: Run Locally
+```bash
+bun run dev
+# or: npm run dev
+```
+
+Visit `http://localhost:8787` to see your app!
+
+### Step 5: Deploy (Optional)
+```bash
+bun run deploy
+# or: npm run deploy
+```
+
+## 🛠️ Development Setup
+
+If you want to modify and develop:
+
+1. **TypeScript checking**:
    ```bash
-   bun install
+   bun run type-check
    ```
 
-2. **Set your JWT secret**:
-   ```bash
-   wrangler secret put JWT_SECRET
-   # Enter a strong random secret (32+ characters)
-   ```
-
-3. **Run locally**:
+2. **Local development with hot reload**:
    ```bash
    bun run dev
    ```
 
-4. **Deploy**:
-   ```bash
-   bun run deploy
-   ```
+## 🔧 Configuration Options
+
+### JWT Secret Management
+- **For local dev**: The example includes a placeholder in `wrangler.jsonc`
+- **For production**: Remove the var and use `wrangler secret put JWT_SECRET`
+
+### Customizing the App
+- Modify `MyAppDO` class in `index.tsx` to add your business logic
+- Update `wrangler.jsonc` to change the app name and configuration
+- Customize the HTML/CSS in the route handlers
 
 ## Key Features Demonstrated
 
@@ -128,3 +175,56 @@ Then add routes in your Hono app to expose these methods via HTTP endpoints.
 - **Easier development**: No coordination between separate DOs
 - **Less complexity**: Single source of truth per user
 - **More intuitive**: Natural inheritance pattern 
+
+## ⚡️ JWT_SECRET: Dev vs Production (TL;DR)
+
+- **For local dev:**  
+  Add to `wrangler.jsonc`:
+  ```jsonc
+  "vars": { "JWT_SECRET": "your-jwt-secret-here" }
+  ```
+- **For production:**  
+  1. Remove/comment out the `JWT_SECRET` line from `wrangler.jsonc`.
+  2. Run:
+     ```sh
+     wrangler secret put JWT_SECRET
+     ```
+  3. Deploy.
+
+> **Note:**  
+> You can't have both a var and a secret with the same name at once.
+
+---
+
+**Security:**  
+- **For local development:**
+  - Add `JWT_SECRET` to your `wrangler.jsonc` under `vars` for easy dev and copy-paste.
+  - Example:
+    ```jsonc
+    "vars": {
+      "JWT_SECRET": "your-jwt-secret-here"
+    }
+    ```
+- **For production deployment:**
+  1. **Remove** (or comment out) the `JWT_SECRET` line from your `wrangler.jsonc`.
+  2. Set your real secret with:
+     ```sh
+     wrangler secret put JWT_SECRET
+     ```
+  3. Deploy as usual.
+
+**You cannot have both a var and a secret with the same name at the same time.**
+
+### Quick Switch Workflow
+1. For dev: keep the var in your config.
+2. Before prod deploy: remove the var, set the secret, then deploy.
+3. After deploy: you can add the var back for local dev if needed.
+
+---
+
+## Security Notice (updated)
+
+- The `wrangler.jsonc` file in this repo uses a placeholder JWT secret for demonstration and local development only.
+- **Before deploying to production, you must remove the JWT_SECRET var from wrangler.jsonc and set it as a secret with `wrangler secret put JWT_SECRET`.**
+- Never use the example secret in a real deployment.
+- For live demos, secrets are rotated and demo data is periodically reset for security. 
