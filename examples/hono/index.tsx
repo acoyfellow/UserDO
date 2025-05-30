@@ -1,6 +1,6 @@
 import { Hono, Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
-import { UserDO, Env as BaseEnv } from '../../src/UserDO'
+import { UserDO, Env as BaseEnv } from 'userdo'
 
 // Extend UserDO with your own business logic
 export class MyAppDO extends UserDO {
