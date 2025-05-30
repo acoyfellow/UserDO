@@ -44,9 +44,32 @@ export interface Env {
   USERDO: DurableObjectNamespace;
 }
 
-const getDO = (env: Env, email: string) => (
-  env.USERDO.get(env.USERDO.idFromName(email.toLowerCase())) as unknown as UserDO
-);
+// Hash email for use as DO ID to prevent PII leaking in logs
+export async function hashEmailForId(email: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(email.toLowerCase());
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = new Uint8Array(hashBuffer);
+  const hashHex = Array.from(hashArray)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+  return hashHex;
+}
+
+// Helper function to get UserDO with automatic email hashing
+// Maintains almost the same API as env.MY_APP_DO.get(env.MY_APP_DO.idFromName(email))
+export async function getUserDO<T extends UserDO>(
+  namespace: DurableObjectNamespace,
+  email: string
+): Promise<T> {
+  const hashedEmail = await hashEmailForId(email);
+  return namespace.get(namespace.idFromName(hashedEmail)) as unknown as T;
+}
+
+const getDO = async (env: Env, email: string): Promise<UserDO> => {
+  const hashedEmail = await hashEmailForId(email);
+  return env.USERDO.get(env.USERDO.idFromName(hashedEmail)) as unknown as UserDO;
+};
 
 async function hashPassword(
   password: string
@@ -78,8 +101,8 @@ export async function migrateUserEmail(
 ): Promise<{ ok: boolean; error?: string }> {
   oldEmail = oldEmail.toLowerCase();
   newEmail = newEmail.toLowerCase();
-  const oldDO = getDO(env, oldEmail);
-  const newDO = getDO(env, newEmail);
+  const oldDO = await getDO(env, oldEmail);
+  const newDO = await getDO(env, newEmail);
   try {
     const user = await oldDO.raw();
     user.email = newEmail;

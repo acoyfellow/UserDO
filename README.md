@@ -4,7 +4,7 @@ A simple, secure, and ergonomic Durable Object base class for user authenticatio
 
 - 🔐 Password hashing (PBKDF2, WebCrypto)
 - 🪪 JWT-based authentication (Cloudflare-native)
-- 🏷️ Email as the Durable Object ID
+- 🏷️ Hashed email as the Durable Object ID (prevents PII leaking in logs)
 - 🛠️ Direct method calls (no HTTP fetch between objects)
 - 🧩 Easy migration, password change, and reset
 - 🗄️ Secure per-user KV store for arbitrary data
@@ -26,7 +26,7 @@ A simple, secure, and ergonomic Durable Object base class for user authenticatio
 ## Quickstart Example
 
 ```ts
-import { UserDO } from "userdo";
+import { UserDO, getUserDO } from "userdo";
 
 export class MyAppDO extends UserDO {
   constructor(state: DurableObjectState, env: Env) {
@@ -47,6 +47,9 @@ export class MyAppDO extends UserDO {
     return await this.get('posts') || [];
   }
 }
+
+// Usage in your worker:
+// const myAppDO = await getUserDO(env.MY_APP_DO, email);
 ```
 
 See [`examples/`](./examples/) folder for a full working Hono example.
@@ -93,8 +96,13 @@ Add your extended Durable Object class to your `wrangler.jsonc`:
 ### 1. Create or get your Durable Object instance
 
 ```ts
-// Always use email as the DO ID for user-specific data
-const myAppDO = env.MY_APP_DO.get(env.MY_APP_DO.idFromName(email));
+import { getUserDO } from "userdo";
+
+// Almost the same API as before, but with automatic email hashing for security
+const myAppDO = await getUserDO(env.MY_APP_DO, email);
+
+// Compare to the old way (don't use this - exposes PII in logs):
+// const myAppDO = env.MY_APP_DO.get(env.MY_APP_DO.idFromName(email));
 ```
 
 ### 2. Authentication Methods (inherited from UserDO)
@@ -221,26 +229,28 @@ if (!result.ok) {
 
 ## Security & Production Deployment
 
-### Secret Key Handling
-- **Never commit your `JWT_SECRET` to version control.**
-- Store secrets in environment variables or your platform's secret manager (e.g., Cloudflare Workers Secrets, Vercel/Netlify/Render secrets, etc).
-- Rotate your JWT secret regularly and after any suspected compromise.
+## ⚡️ JWT_SECRET: Dev vs Production (TL;DR)
 
-### Production Safety Tips
-- Always use HTTPS in production.
-- Set `secure: true` and `httpOnly: true` for cookies (already set in this template).
-- Use a strong, random JWT secret (at least 32+ characters).
-- Consider adding rate limiting to authentication endpoints to prevent brute force attacks.
-- Add email verification and password reset token validation for better account security.
-- Set JWT expiry (`exp` claim) and handle token refresh/rotation as needed.
-- Regularly audit your dependencies for vulnerabilities.
+- **For local dev:**  
+  Add to `wrangler.jsonc`:
+  ```jsonc
+  "vars": { "JWT_SECRET": "your-jwt-secret-here" }
+  ```
+- **For production:**  
+  1. Remove/comment out the `JWT_SECRET` line from `wrangler.jsonc`.
+  2. Run:
+     ```sh
+     wrangler secret put JWT_SECRET
+     ```
+  3. Deploy.
 
-### Example: Setting a Secret in Cloudflare Workers
-```sh
-wrangler secret put JWT_SECRET
-```
+> **Note:**  
+> You can't have both a var and a secret with the same name at once.
 
-For more, see the [Cloudflare Workers docs on secrets](https://developers.cloudflare.com/workers/configuration/secrets/).
+---
+
+**Security:**  
+Never use the example secret in production. Always set a strong, random secret for live deployments.
 
 ## Potential Roadmap
 
