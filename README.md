@@ -9,6 +9,7 @@ A simple, secure, and ergonomic Durable Object base class for user authenticatio
 - 🧩 Easy migration, password change, and reset
 - 🗄️ Secure per-user KV store for arbitrary data
 - 🧬 **Extend and build on top** - no separate bindings needed
+- ⏱️ Basic rate limiting for authentication endpoints
 
 > **Note:**
 > - You extend `UserDO` with your own class and add your custom logic on top
@@ -254,7 +255,7 @@ Never use the example secret in production. Always set a strong, random secret f
 
 ## Potential Roadmap
 
-- [ ] Rate limiting for authentication endpoints
+- [x] Rate limiting for authentication endpoints
 - [ ] Email verification flow
 - [ ] Password reset with secure, time-limited tokens
 - [ ] Configurable JWT expiration and refresh tokens

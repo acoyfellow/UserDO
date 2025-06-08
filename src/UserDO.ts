@@ -29,6 +29,9 @@ const PASSWORD_CONFIG = {
 
 const RESERVED_PREFIX = "__";
 const AUTH_DATA_KEY = "__user";
+const RATE_LIMIT_KEY = "__rl";
+const RATE_LIMIT_MAX = 5;
+const RATE_LIMIT_WINDOW = 60_000; // 1 minute
 
 function isReservedKey(key: string): boolean {
   return key.startsWith(RESERVED_PREFIX);
@@ -127,6 +130,21 @@ export class UserDO extends DurableObject {
     this.env = env;
   }
 
+  private async checkRateLimit(): Promise<void> {
+    const now = Date.now();
+    const record = await this.storage.get<{ count: number; resetAt: number }>(RATE_LIMIT_KEY);
+    if (record && record.resetAt > now) {
+      if (record.count >= RATE_LIMIT_MAX) {
+        throw new Error('Too many requests');
+      }
+      record.count += 1;
+      await this.storage.put(RATE_LIMIT_KEY, record);
+    } else {
+      const resetAt = now + RATE_LIMIT_WINDOW;
+      await this.storage.put(RATE_LIMIT_KEY, { count: 1, resetAt });
+    }
+  }
+
   async signup(
     { email, password }:
       { email: string; password: string }
@@ -136,6 +154,7 @@ export class UserDO extends DurableObject {
     refreshToken: string
   }> {
     email = email.toLowerCase();
+    await this.checkRateLimit();
     const parsed = SignupSchema.safeParse({ email, password });
     if (!parsed.success) {
       throw new Error('Invalid input: ' + JSON.stringify(parsed.error.flatten()));
@@ -189,6 +208,7 @@ export class UserDO extends DurableObject {
     refreshToken: string
   }> {
     email = email.toLowerCase();
+    await this.checkRateLimit();
     const parsed = LoginSchema.safeParse({ email, password });
     if (!parsed.success) {
       throw new Error('Invalid input: ' + JSON.stringify(parsed.error.flatten()));
