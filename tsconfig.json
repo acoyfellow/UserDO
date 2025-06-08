@@ -39,5 +39,7 @@
     "declarationDir": "dist",
     "outDir": "dist",
     "rootDir": "."
-  }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["examples"]
 }
