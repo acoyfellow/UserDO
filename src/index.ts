@@ -1,2 +1,2 @@
-export * from "./UserDO";
+export { UserDO, getUserDO, hashEmailForId, migrateUserEmail } from "./UserDO";
 
