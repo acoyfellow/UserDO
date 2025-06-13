@@ -77,11 +77,14 @@ app.post('/login', async (c) => {
 app.post('/logout', async (c) => {
   try {
     const token = getCookie(c, 'token') || '';
-    const payload = JSON.parse(atob(token.split('.')[1] || ''));
-    const email = payload.email?.toLowerCase();
-    if (email) {
-      const userDO = getUserDO(c, email);
-      await userDO.logout();
+    const tokenParts = token.split('.');
+    if (tokenParts.length === 3 && tokenParts[1]) {
+      const payload = JSON.parse(atob(tokenParts[1]));
+      const email = payload.email?.toLowerCase();
+      if (email) {
+        const userDO = getUserDO(c, email);
+        await userDO.logout();
+      }
     }
   } catch (e) {
     console.error('Logout error', e);
@@ -96,24 +99,39 @@ app.use('/*', async (c, next) => {
   try {
     const token = getCookie(c, 'token') || '';
     const refreshToken = getCookie(c, 'refreshToken') || '';
-    const accessPayload = JSON.parse(atob(token.split('.')[1]));
-    const refreshPayload = JSON.parse(atob(refreshToken.split('.')[1]));
-    let email = accessPayload.email?.toLowerCase() || refreshPayload.email?.toLowerCase();
-    const userDO = getUserDO(c, email);
-    const result = await userDO.verifyToken({ token: token });
-    if (!result.ok) {
-      const refreshResult = await userDO.refreshToken({ refreshToken });
-      if (!refreshResult.token) return c.json({ error: 'Unauthorized' }, 401);
-      setCookie(c, 'token', refreshResult.token, {
-        httpOnly: true,
-        secure: true,
-        path: '/',
-        sameSite: 'Strict'
-      })
-    }
-    if (result.ok && result.user) {
-      c.set('user', result.user ?? undefined);
+
+    // Helper function to safely decode JWT payload
+    const decodeJWTPayload = (jwt: string) => {
+      try {
+        const parts = jwt.split('.');
+        if (parts.length !== 3 || !parts[1]) return null;
+        return JSON.parse(atob(parts[1]));
+      } catch {
+        return null;
+      }
     };
+
+    const accessPayload = decodeJWTPayload(token);
+    const refreshPayload = decodeJWTPayload(refreshToken);
+    let email = accessPayload?.email?.toLowerCase() || refreshPayload?.email?.toLowerCase();
+
+    if (email) {
+      const userDO = getUserDO(c, email);
+      const result = await userDO.verifyToken({ token: token });
+      if (!result.ok) {
+        const refreshResult = await userDO.refreshToken({ refreshToken });
+        if (!refreshResult.token) return c.json({ error: 'Unauthorized' }, 401);
+        setCookie(c, 'token', refreshResult.token, {
+          httpOnly: true,
+          secure: true,
+          path: '/',
+          sameSite: 'Strict'
+        })
+      }
+      if (result.ok && result.user) {
+        c.set('user', result.user ?? undefined);
+      };
+    }
     await next();
   } catch (e) {
     console.error(e);
