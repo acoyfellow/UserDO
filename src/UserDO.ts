@@ -226,7 +226,6 @@ export class UserDO extends DurableObject {
       exp: accessExp
     }, this.env.JWT_SECRET);
 
-    console.log('token', token);
 
     // Generate refresh token (7 days)
     const refreshExp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
