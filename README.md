@@ -16,6 +16,7 @@ A simple, secure, and ergonomic Durable Object base class for user authenticatio
 > - You still need to set up a router (e.g., with Hono, Express, or native Workers routing) to expose endpoints to your client or other services
 > - All authentication methods are available through inheritance - just call `this.signup()`, `this.login()`, etc. from your extended class
 > - See the [examples](./examples/) folder for a full working integration
+> - The `router-client` example shows the built-in router and browser client working together
 
 ## What is this for?
 
@@ -53,7 +54,7 @@ export class MyAppDO extends UserDO {
 // const myAppDO = await getUserDO(env.MY_APP_DO, email);
 ```
 
-See [`examples/`](./examples/) folder for a full working Hono example.
+See [`examples/`](./examples/) for the full Hono integration. A minimal browser client is exported from `userdo/client`. An optional router is available from `userdo/router`. See `examples/router-client` for an end-to-end demo using both.
 
 ## Install
 ```bash
@@ -141,6 +142,9 @@ await myAppDO.revokeRefreshToken({ refreshToken });
 
 // Revoke all refresh tokens
 await myAppDO.revokeAllRefreshTokens();
+
+// Logout (clears all refresh tokens)
+await myAppDO.logout();
 ```
 
 ### 3. User Data Management (inherited from UserDO)
@@ -181,6 +185,40 @@ if (!result.ok) {
 - Returns `{ ok: true }` for set operations
 - Keys starting with `__` are reserved for internal UserDO use
 
+## Browser Client
+
+Use a lightweight client directly in the browser:
+
+```html
+<script type="module">
+  import { createClient } from 'https://cdn.jsdelivr.net/npm/userdo/dist/client.js';
+  const auth = createClient({ baseUrl: '/api' });
+  await auth.initialize();
+  // auth.signIn(email, password)
+</script>
+```
+
+The client exposes `signUp`, `signIn`, `signOut`, `refreshSession`, `checkAuth`,
+`currentUser`, and `accessToken` helpers.
+
+## HTTP Router
+
+Expose REST endpoints automatically from your Durable Object:
+
+```ts
+import { createRouter, UserDO } from 'userdo';
+
+export class MyAppDO extends UserDO {
+  router = createRouter();
+
+  async fetch(request: Request) {
+    const res = await this.router.handle.call(this, request);
+    if (res) return res;
+    return new Response('not found', { status: 404 });
+  }
+}
+```
+
 ## API
 
 ### Inherited UserDO Methods
@@ -195,6 +233,7 @@ if (!result.ok) {
 | `refreshToken({ refreshToken })`              | `{ refreshToken: string }`                                            | `{ token: string }`                     | Generate a new access token from a refresh token.             |
 | `revokeRefreshToken({ refreshToken })`        | `{ refreshToken: string }`                                            | `{ ok: true }`                          | Revoke a specific refresh token.                               |
 | `revokeAllRefreshTokens()`                    | –                                                                     | `{ ok: true }`                          | Revoke all refresh tokens for the user.                       |
+| `logout()`                                    | –                                        | `{ ok: true }`  | Clear all refresh tokens (logout).                            |
 | `raw()`                                       | –                                                                     | `user`                                  | Get the raw user data. Throws if user does not exist.           |
 | `init(user)`                                  | `user` (full user object, see below)                                  | `{ ok: true }`                          | Seed user data (for migration). Throws if input is invalid.     |
 | `deleteUser()`                                | –                                                                     | `{ ok: true }`                          | Delete the user data.                                           |
