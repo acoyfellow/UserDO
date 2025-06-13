@@ -8,6 +8,7 @@ A simple, secure, and ergonomic Durable Object base class for user authenticatio
 - 🛠️ Direct method calls (no HTTP fetch between objects)
 - 🧩 Easy migration, password change, and reset
 - 🗄️ Secure per-user KV store for arbitrary data
+- 🗃️ Generic database tables with queries and real-time hooks
 - 🧬 **Extend and build on top** - no separate bindings needed
 - ⏱️ Basic rate limiting for authentication endpoints
 
@@ -28,24 +29,32 @@ A simple, secure, and ergonomic Durable Object base class for user authenticatio
 
 ```ts
 import { UserDO, getUserDO } from "userdo";
+import { z } from "zod";
+
+const PostSchema = z.object({
+  title: z.string(),
+  content: z.string(),
+  createdAt: z.string(),
+});
 
 export class MyAppDO extends UserDO {
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
   }
 
-  // Add your own methods on top of UserDO
+  // Generic table backed by D1
+  posts = this.table('posts', PostSchema, { userScoped: true });
+
   async createPost(title: string, content: string) {
-    // Use this.set() and this.get() for user-specific data storage
-    const posts = await this.get('posts') || [];
-    const newPost = { id: Date.now(), title, content, createdAt: new Date().toISOString() };
-    posts.push(newPost);
-    await this.set('posts', posts);
-    return newPost;
+    return await this.posts.create({
+      title,
+      content,
+      createdAt: new Date().toISOString(),
+    });
   }
 
   async getPosts() {
-    return await this.get('posts') || [];
+    return await this.posts.orderBy('createdAt', 'desc').getAll();
   }
 }
 
@@ -162,7 +171,28 @@ const preferences = await myAppDO.get('preferences');
 // returns: { theme: 'dark', language: 'en' }
 ```
 
-### 4. Advanced Operations
+### 4. Database Tables
+
+Use `this.table()` to create type-safe tables backed by D1.
+
+```ts
+const ProductSchema = z.object({
+  name: z.string(),
+  price: z.number(),
+  category: z.string(),
+});
+
+const products = this.table('products', ProductSchema);
+
+await products.create({ name: 'Widget', price: 9.99, category: 'tools' });
+
+const widgets = await products
+  .where('category', '==', 'tools')
+  .orderBy('price', 'asc')
+  .get();
+```
+
+### 5. Advanced Operations
 
 #### Get Raw User Data
 ```ts

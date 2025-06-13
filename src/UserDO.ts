@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { z } from 'zod';
 import jwt, { JwtData } from '@tsndr/cloudflare-worker-jwt';
+import { UserDODatabase, TableOptions } from './database/index';
 
 // --- User Schema ---
 const UserSchema = z.object({
@@ -45,6 +46,7 @@ type JwtPayload = {
 export interface Env {
   JWT_SECRET: string;
   USERDO: DurableObjectNamespace;
+  DATABASE: D1Database;
 }
 
 // Hash email for use as DO ID to prevent PII leaking in logs
@@ -122,12 +124,14 @@ export class UserDO extends DurableObject {
   protected state: DurableObjectState;
   protected storage: DurableObjectStorage;
   protected env: Env;
+  protected database: UserDODatabase;
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
     this.state = state;
     this.storage = state.storage;
     this.env = env;
+    this.database = new UserDODatabase(env.DATABASE, this.getCurrentUserId(), this.broadcast.bind(this));
   }
 
   private async checkRateLimit(): Promise<void> {
@@ -404,6 +408,26 @@ export class UserDO extends DurableObject {
 
   async logout(): Promise<{ ok: boolean }> {
     return this.revokeAllRefreshTokens();
+  }
+
+  protected table<T extends z.ZodSchema>(
+    name: string,
+    schema: T,
+    options?: TableOptions
+  ) {
+    return this.database.table(name, schema, options);
+  }
+
+  protected get db() {
+    return this.database.raw;
+  }
+
+  protected getCurrentUserId(): string {
+    return this.state.id.toString();
+  }
+
+  protected broadcast(_event: string, _data: any): void {
+    // Placeholder for realtime functionality
   }
 }
 

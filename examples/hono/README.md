@@ -17,13 +17,19 @@ const appDO = env.APP_DO.get(env.APP_DO.idFromName(email));
 ### After (Extension - Simpler!)
 ```ts
 // ✅ New way: extend UserDO
+import { z } from 'zod';
+
+const PostSchema = z.object({
+  title: z.string(),
+  content: z.string(),
+  createdAt: z.string(),
+});
+
 export class MyAppDO extends UserDO {
-  // Add your custom methods here
+  posts = this.table('posts', PostSchema, { userScoped: true });
+
   async createPost(title: string, content: string) {
-    // Use inherited methods like this.get() and this.set()
-    const posts = await this.get('posts') || [];
-    posts.push({ title, content, createdAt: new Date() });
-    await this.set('posts', posts);
+    await this.posts.create({ title, content, createdAt: new Date().toISOString() });
   }
 }
 
@@ -36,7 +42,7 @@ await myAppDO.createPost(title, content);   // Your custom logic
 ## What This Example Shows
 
 - **Authentication**: Login, signup, logout (clears refresh tokens), token refresh (inherited from UserDO)
-- **Data Storage**: Generic key-value storage using UserDO's `get()`/`set()` methods  
+- **Data Storage**: Generic key-value store and queryable tables via `this.table()`
 - **Custom Business Logic**: 
   - Posts management (create, list)
   - User preferences (theme, language)
@@ -45,7 +51,7 @@ await myAppDO.createPost(title, content);   // Your custom logic
 ## Files
 
 - `index.tsx` - Main Hono app with extended UserDO class
-- `wrangler.jsonc` - Configuration showing single DO binding
+- `wrangler.jsonc` - Configuration showing single DO binding and D1 database
 - `package.json` - Dependencies
 - `tsconfig.json` - TypeScript configuration
 
@@ -70,7 +76,13 @@ bun install
 # or: npm install
 ```
 
-### Step 3: Set Up Authentication Secret
+### Step 3: Create a D1 Database
+```bash
+wrangler d1 create my_app_db
+```
+Update `wrangler.jsonc` with the generated database ID.
+
+### Step 4: Set Up Authentication Secret
 ```bash
 # Generate and set a secure JWT secret
 wrangler secret put JWT_SECRET
@@ -79,7 +91,7 @@ wrangler secret put JWT_SECRET
 
 > **💡 Tip**: Use `openssl rand -base64 32` to generate a secure secret
 
-### Step 4: Run Locally
+### Step 5: Run Locally
 ```bash
 bun run dev
 # or: npm run dev
@@ -87,7 +99,7 @@ bun run dev
 
 Visit `http://localhost:8787` to see your app!
 
-### Step 5: Deploy (Optional)
+### Step 6: Deploy (Optional)
 ```bash
 bun run deploy
 # or: npm run deploy
@@ -129,6 +141,10 @@ If you want to modify and develop:
 - Per-user key-value storage
 - Secure, isolated data per user
 - No reserved key conflicts
+
+### 🗃️ Database Tables (New)
+- Posts stored in a D1-backed table
+- Query with `where()` and `orderBy()` helpers
 
 ### 🧬 Custom Logic (Extended)
 - Post creation and management

@@ -13,6 +13,13 @@
       }
     ]
   },
+  "d1_databases": [
+    {
+      "binding": "DATABASE",
+      "database_name": "my_app_db",
+      "database_id": "<your-d1-database-id>"
+    }
+  ],
   "migrations": [
     {
       "tag": "v1",

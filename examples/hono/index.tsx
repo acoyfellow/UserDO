@@ -1,35 +1,36 @@
 import { Hono, Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { UserDO, Env as BaseEnv } from 'userdo'
+import { z } from 'zod'
 
 // Extend UserDO with your own business logic
+const PostSchema = z.object({
+  title: z.string(),
+  content: z.string(),
+  createdAt: z.string(),
+});
+
 export class MyAppDO extends UserDO {
+  posts = this.table('posts', PostSchema, { userScoped: true });
+
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
   }
 
-  // Add custom methods on top of UserDO's authentication
   async createPost(title: string, content: string) {
-    const posts = (await this.get('posts') as any[]) || [];
-    const newPost = {
-      id: Date.now(),
+    return await this.posts.create({
       title,
       content,
-      createdAt: new Date().toISOString()
-    };
-    posts.push(newPost);
-    await this.set('posts', posts);
-    return newPost;
+      createdAt: new Date().toISOString(),
+    });
   }
 
   async getPosts() {
-    return (await this.get('posts') as any[]) || [];
+    return await this.posts.orderBy('createdAt', 'desc').getAll();
   }
 
-  async deletePost(postId: number) {
-    const posts = (await this.get('posts') as any[]) || [];
-    const filteredPosts = posts.filter((post: any) => post.id !== postId);
-    await this.set('posts', filteredPosts);
+  async deletePost(id: string) {
+    await this.posts.delete(id);
     return { ok: true };
   }
 
@@ -216,7 +217,7 @@ app.post("/posts", async (c) => {
 app.delete("/posts/:id", async (c) => {
   const user = c.get('user');
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
-  const postId = parseInt(c.req.param('id'));
+  const postId = c.req.param('id');
   const myAppDO = getMyAppDO(c, user.email);
   await myAppDO.deletePost(postId);
   return c.json({ ok: true });
