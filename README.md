@@ -141,6 +141,9 @@ await myAppDO.revokeRefreshToken({ refreshToken });
 
 // Revoke all refresh tokens
 await myAppDO.revokeAllRefreshTokens();
+
+// Logout (clears all refresh tokens)
+await myAppDO.logout();
 ```
 
 ### 3. User Data Management (inherited from UserDO)
@@ -195,6 +198,7 @@ if (!result.ok) {
 | `refreshToken({ refreshToken })`              | `{ refreshToken: string }`                                            | `{ token: string }`                     | Generate a new access token from a refresh token.             |
 | `revokeRefreshToken({ refreshToken })`        | `{ refreshToken: string }`                                            | `{ ok: true }`                          | Revoke a specific refresh token.                               |
 | `revokeAllRefreshTokens()`                    | –                                                                     | `{ ok: true }`                          | Revoke all refresh tokens for the user.                       |
+| `logout()`                                    | –                                        | `{ ok: true }`  | Clear all refresh tokens (logout).                            |
 | `raw()`                                       | –                                                                     | `user`                                  | Get the raw user data. Throws if user does not exist.           |
 | `init(user)`                                  | `user` (full user object, see below)                                  | `{ ok: true }`                          | Seed user data (for migration). Throws if input is invalid.     |
 | `deleteUser()`                                | –                                                                     | `{ ok: true }`                          | Delete the user data.                                           |

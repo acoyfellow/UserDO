@@ -35,7 +35,7 @@ await myAppDO.createPost(title, content);   // Your custom logic
 
 ## What This Example Shows
 
-- **Authentication**: Login, signup, logout, token refresh (inherited from UserDO)
+- **Authentication**: Login, signup, logout (clears refresh tokens), token refresh (inherited from UserDO)
 - **Data Storage**: Generic key-value storage using UserDO's `get()`/`set()` methods  
 - **Custom Business Logic**: 
   - Posts management (create, list)
@@ -121,7 +121,7 @@ If you want to modify and develop:
 ## Key Features Demonstrated
 
 ### 🔐 Authentication (Inherited)
-- User signup/login/logout
+- User signup/login/logout (clears refresh tokens)
 - JWT token management with refresh tokens
 - Protected routes with middleware
 
