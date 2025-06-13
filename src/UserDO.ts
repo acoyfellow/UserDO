@@ -402,6 +402,10 @@ export class UserDO extends DurableObject {
     await this.storage.put(AUTH_DATA_KEY, user);
     return { ok: true };
   }
+
+  async logout(): Promise<{ ok: boolean }> {
+    return this.revokeAllRefreshTokens();
+  }
 }
 
 export default {};

@@ -75,6 +75,17 @@ app.post('/login', async (c) => {
 
 // logout
 app.post('/logout', async (c) => {
+  try {
+    const token = getCookie(c, 'token') || '';
+    const payload = JSON.parse(atob(token.split('.')[1] || ''));
+    const email = payload.email?.toLowerCase();
+    if (email) {
+      const userDO = getUserDO(c, email);
+      await userDO.logout();
+    }
+  } catch (e) {
+    console.error('Logout error', e);
+  }
   deleteCookie(c, 'token');
   deleteCookie(c, 'refreshToken');
   return c.redirect('/');
