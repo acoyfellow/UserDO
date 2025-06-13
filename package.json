@@ -1,6 +1,9 @@
 {
   "name": "userdo",
   "version": "0.1.30",
+  "workspaces": [
+    "examples/*"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/acoyfellow/userdo.git"
@@ -67,7 +70,7 @@
     "dev": "wrangler dev",
     "start": "wrangler dev",
     "build": "tsc && npm run build:client",
-    "build:client": "tsup src/client.ts --format iife --global-name UserDO --out-dir dist && mv dist/client.global.js dist/client.js",
+    "build:client": "tsup src/client.ts --format esm,iife --global-name UserDO --out-dir dist",
     "prepublishOnly": "npm run build",
     "release:patch": "npm version patch && npm publish",
     "release:minor": "npm version minor && npm publish",

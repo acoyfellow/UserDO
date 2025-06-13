@@ -7,10 +7,18 @@
   },
   "durable_objects": {
     "bindings": [
-      { "name": "AUTH_DO", "class_name": "AuthDO" }
+      {
+        "name": "AUTH_DO",
+        "class_name": "AuthDO"
+      }
     ]
   },
   "migrations": [
-    { "tag": "v1", "new_classes": ["AuthDO"] }
+    {
+      "tag": "v1",
+      "new_classes": [
+        "AuthDO"
+      ]
+    }
   ]
 }

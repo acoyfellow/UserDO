@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "hono": "^4.0.0",
-    "userdo": "latest"
+    "userdo": "file:../.."
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240208.0",

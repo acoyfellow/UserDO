@@ -57,6 +57,113 @@ app.get('/auth/me', async c => {
   return stub.fetch('/auth/me', { headers: { Authorization: `Bearer ${token}` } })
 })
 
+// Serve the ES module client
+app.get('/client.js', async c => {
+  const clientCode = `// src/client.ts
+function createClient(options = {}) {
+  const base = options.baseUrl || "";
+  const memory = {
+    getItem: (key) => memory[key] || null,
+    setItem: (key, value) => {
+      memory[key] = value;
+    },
+    removeItem: (key) => {
+      delete memory[key];
+    }
+  };
+  const store = options.storage || (typeof globalThis.localStorage === "undefined" ? memory : globalThis.localStorage);
+  let token = store.getItem("token");
+  let refresh = store.getItem("refresh");
+  let user = null;
+  async function request(path, body) {
+    const res = await fetch(base + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok)
+      throw new Error(await res.text());
+    return res.json();
+  }
+  function save(t, r) {
+    token = t;
+    refresh = r;
+    store.setItem("token", t);
+    store.setItem("refresh", r);
+  }
+  async function signUp(email, password) {
+    const r = await request(
+      "/signup",
+      { email, password }
+    );
+    save(r.token, r.refreshToken);
+    user = r.user;
+    return r.user;
+  }
+  async function signIn(email, password) {
+    const r = await request(
+      "/login",
+      { email, password }
+    );
+    save(r.token, r.refreshToken);
+    user = r.user;
+    return r.user;
+  }
+  async function refreshSession() {
+    if (!refresh)
+      return null;
+    const r = await request("/refresh", { refreshToken: refresh });
+    save(r.token, refresh);
+    return r.token;
+  }
+  async function checkAuth() {
+    if (!token)
+      return false;
+    try {
+      const r = await request("/verify", { token });
+      user = r.user || null;
+      return r.ok;
+    } catch {
+      await refreshSession();
+      return false;
+    }
+  }
+  function signOut() {
+    token = null;
+    refresh = null;
+    user = null;
+    store.removeItem("token");
+    store.removeItem("refresh");
+  }
+  function currentUser() {
+    return user;
+  }
+  function accessToken() {
+    return token;
+  }
+  async function initialize() {
+    await checkAuth();
+  }
+  return {
+    signUp,
+    signIn,
+    signOut,
+    refreshSession,
+    checkAuth,
+    currentUser,
+    accessToken,
+    initialize
+  };
+}
+export {
+  createClient
+};`
+
+  return new Response(clientCode, {
+    headers: { 'Content-Type': 'application/javascript' }
+  })
+})
+
 app.get('/', c =>
   c.html(
     <html>
@@ -78,8 +185,8 @@ app.get('/', c =>
         </form>
         <button id="signout" style="display:none">Sign Out</button>
         <pre id="user"></pre>
-        <script type="module">
-          {`
+        <script type="module" dangerouslySetInnerHTML={{
+          __html: `
           import { createClient } from 'https://cdn.jsdelivr.net/npm/userdo/dist/client.js';
           const auth = createClient({ baseUrl: '/auth' });
           await auth.initialize();
@@ -108,8 +215,8 @@ app.get('/', c =>
             update();
           });
           update();
-          `}
-        </script>
+          `
+        }}></script>
       </body>
     </html>
   )
