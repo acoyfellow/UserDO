@@ -1,5 +1,3 @@
-import { drizzle } from 'drizzle-orm/d1';
-import { sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { GenericTable } from './table';
 
@@ -9,17 +7,14 @@ export interface TableOptions {
 }
 
 export class UserDODatabase {
-  private db: ReturnType<typeof drizzle>;
   private tables = new Map<string, GenericTable<any>>();
   private schemas = new Map<string, z.ZodSchema>();
 
   constructor(
-    d1Database: D1Database,
+    private storage: DurableObjectStorage,
     private currentUserId: string,
     private broadcast: (event: string, data: any) => void
-  ) {
-    this.db = drizzle(d1Database);
-  }
+  ) { }
 
   table<T extends z.ZodSchema>(
     name: string,
@@ -31,7 +26,7 @@ export class UserDODatabase {
       const table = new GenericTable<z.infer<T>>(
         name,
         schema,
-        this.db,
+        this.storage,
         this.currentUserId,
         this.broadcast
       );
@@ -42,13 +37,20 @@ export class UserDODatabase {
   }
 
   get raw() {
-    return this.db;
+    return this.storage.sql;
   }
 
-  private async ensureTableExists(name: string, options: TableOptions): Promise<void> {
-    const createSQL = `\n      CREATE TABLE IF NOT EXISTS "${name}" (\n        id TEXT PRIMARY KEY,\n        data TEXT NOT NULL,\n        created_at INTEGER NOT NULL,\n        updated_at INTEGER NOT NULL,\n        user_id TEXT${options.userScoped ? ' NOT NULL' : ''}\n      );\n    `;
+  private ensureTableExists(name: string, options: TableOptions): void {
+    const createSQL = `CREATE TABLE IF NOT EXISTS "${name}" (
+      id TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      user_id TEXT${options.userScoped ? ' NOT NULL' : ''}
+    )`;
+
     try {
-      await this.db.run(sql`${createSQL}`);
+      this.storage.sql.exec(createSQL);
     } catch (err) {
       console.log(`Table ${name} creation result:`, err);
     }

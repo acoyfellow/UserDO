@@ -46,7 +46,6 @@ type JwtPayload = {
 export interface Env {
   JWT_SECRET: string;
   USERDO: DurableObjectNamespace;
-  DATABASE: D1Database;
 }
 
 // Hash email for use as DO ID to prevent PII leaking in logs
@@ -131,7 +130,7 @@ export class UserDO extends DurableObject {
     this.state = state;
     this.storage = state.storage;
     this.env = env;
-    this.database = new UserDODatabase(env.DATABASE, this.getCurrentUserId(), this.broadcast.bind(this));
+    this.database = new UserDODatabase(this.storage, this.getCurrentUserId(), this.broadcast.bind(this));
   }
 
   private async checkRateLimit(): Promise<void> {
