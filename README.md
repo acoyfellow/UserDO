@@ -42,7 +42,7 @@ export class MyAppDO extends UserDO {
     super(state, env);
   }
 
-  // Generic table backed by D1
+  // Database table backed by DO's built-in SQLite storage
   posts = this.table('posts', PostSchema, { userScoped: true });
 
   async createPost(title: string, content: string) {
@@ -54,7 +54,12 @@ export class MyAppDO extends UserDO {
   }
 
   async getPosts() {
-    return await this.posts.orderBy('createdAt', 'desc').getAll();
+    return await this.posts.orderBy('createdAt', 'desc').get();
+  }
+
+  async deletePost(id: string) {
+    await this.posts.delete(id);
+    return { ok: true };
   }
 }
 
@@ -173,7 +178,7 @@ const preferences = await myAppDO.get('preferences');
 
 ### 4. Database Tables
 
-Use `this.table()` to create type-safe tables backed by D1.
+Use `this.table()` to create type-safe tables backed by the Durable Object's built-in SQLite storage.
 
 ```ts
 const ProductSchema = z.object({
@@ -258,6 +263,35 @@ if (!result.ok) {
 - `refreshToken` is a JWT string for token refresh (7 days expiry)
 - `user` is the user object as above
 
+## Database Tables Features
+
+The new database table functionality provides:
+
+- **Type-safe schemas** with Zod validation
+- **User-scoped data** - each user's data is automatically isolated
+- **Query capabilities** - `where()`, `orderBy()`, `limit()` methods
+- **Built-in SQLite storage** - uses the DO's embedded SQLite database
+- **Automatic timestamps** - `createdAt` and `updatedAt` fields
+- **CRUD operations** - create, read, update, delete with simple API
+
+### Table Methods
+
+```ts
+// Create a table
+const posts = this.table('posts', PostSchema, { userScoped: true });
+
+// CRUD operations
+await posts.create(data);
+await posts.findById(id);
+await posts.update(id, updates);
+await posts.delete(id);
+
+// Queries
+await posts.where('status', '==', 'published').get();
+await posts.orderBy('createdAt', 'desc').limit(10).get();
+await posts.count();
+```
+
 ---
 
 **Extend once. Use everywhere. No separate auth service needed.**
@@ -290,6 +324,7 @@ Never use the example secret in production. Always set a strong, random secret f
 ## Potential Roadmap
 
 - [x] Rate limiting for authentication endpoints
+- [x] Database tables with type-safe queries
 - [ ] Email verification flow
 - [ ] Password reset with secure, time-limited tokens
 - [ ] Configurable JWT expiration and refresh tokens

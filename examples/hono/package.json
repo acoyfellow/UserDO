@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "hono": "^4.0.0",
-    "userdo": "latest"
+    "userdo": "file:../../",
+    "zod": "^3.25.32"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240208.0",
