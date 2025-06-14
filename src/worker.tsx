@@ -1,8 +1,42 @@
 import { Hono, Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
-import { Env, UserDO } from './UserDO'
+import { Env, UserDO as BaseUserDO } from './UserDO'
+import { z } from 'zod'
 
-export { UserDO }
+// Extend UserDO with database table functionality
+const PostSchema = z.object({
+  title: z.string(),
+  content: z.string(),
+  createdAt: z.string(),
+});
+
+export class MyAppDO extends BaseUserDO {
+  posts = this.table('posts', PostSchema, { userScoped: true });
+
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env);
+  }
+
+  async createPost(title: string, content: string) {
+    return await this.posts.create({
+      title,
+      content,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  async getPosts() {
+    return await this.posts.orderBy('createdAt', 'desc').get();
+  }
+
+  async deletePost(id: string) {
+    await this.posts.delete(id);
+    return { ok: true };
+  }
+}
+
+// Export MyAppDO as the default Durable Object
+export { MyAppDO as UserDO }
 
 type User = {
   id: string;
@@ -11,7 +45,12 @@ type User = {
 
 const getUserDO = (c: Context, email: string) => {
   const userDOID = c.env.USERDO.idFromName(email);
-  return c.env.USERDO.get(userDOID) as unknown as UserDO;
+  return c.env.USERDO.get(userDOID) as unknown as BaseUserDO;
+}
+
+const getMyAppDO = (c: Context, email: string) => {
+  const userDOID = c.env.USERDO.idFromName(email);
+  return c.env.USERDO.get(userDOID) as unknown as MyAppDO;
 }
 
 const app = new Hono<{ Bindings: Env, Variables: { user: User } }>()
@@ -159,6 +198,38 @@ app.post("/data", async (c) => {
   return c.json({ ok: true, data: { key, value } });
 });
 
+// --- POSTS ENDPOINTS (Database Table Demo) ---
+app.get("/posts", async (c) => {
+  const user = c.get('user');
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const myAppDO = getMyAppDO(c, user.email);
+  const posts = await myAppDO.getPosts();
+  return c.json({ ok: true, posts });
+});
+
+app.post("/posts", async (c) => {
+  const user = c.get('user');
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const formData = await c.req.formData();
+  const title = formData.get('title') as string;
+  const content = formData.get('content') as string;
+  if (!title || !content) {
+    return c.json({ error: "Missing title or content" }, 400);
+  }
+  const myAppDO = getMyAppDO(c, user.email);
+  const post = await myAppDO.createPost(title, content);
+  return c.redirect('/');
+});
+
+app.delete("/posts/:id", async (c) => {
+  const user = c.get('user');
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const postId = c.req.param('id');
+  const myAppDO = getMyAppDO(c, user.email);
+  await myAppDO.deletePost(postId);
+  return c.json({ ok: true });
+});
+
 // Example protected endpoint
 app.get('/protected/profile', (c) => {
   const user = c.get('user');
@@ -169,13 +240,19 @@ app.get('/protected/profile', (c) => {
 // --- Minimal Frontend (JSX) ---
 app.get('/', async (c) => {
   const user = c.get('user') || undefined;
-  const userDO = getUserDO(c, user?.email || '');
-  const data = await userDO.get("data");
+  let data, posts: any[] = [];
+
+  if (user) {
+    const userDO = getUserDO(c, user.email);
+    const myAppDO = getMyAppDO(c, user.email);
+    data = await userDO.get("data");
+    posts = await myAppDO.getPosts();
+  }
 
   return c.html(
     <html>
       <head>
-        <title>UserDO Demo</title>
+        <title>UserDO Demo with Database Tables</title>
         <style>{`
           body {
             font-family: Avenir, Inter, Helvetica, Arial, sans-serif;
@@ -208,12 +285,58 @@ app.get('/', async (c) => {
             margin: 10px 0;
             padding: 15px;
             border-radius: 5px;
+            background: #f9f9f9;
+          }
+          .post h3 {
+            margin-top: 0;
+            color: #333;
+          }
+          .post-meta {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 10px;
+          }
+          .delete-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+          }
+          .delete-btn:hover {
+            background: #c82333;
+          }
+          .feature-highlight {
+            background: #e7f3ff;
+            border-left: 4px solid #007bff;
+            padding: 10px;
+            margin: 10px 0;
           }
         `}</style>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <script dangerouslySetInnerHTML={{
+          __html: `
+          async function deletePost(id) {
+            if (confirm('Are you sure you want to delete this post?')) {
+              try {
+                const response = await fetch('/posts/' + id, { method: 'DELETE' });
+                if (response.ok) {
+                  location.reload();
+                } else {
+                  alert('Failed to delete post');
+                }
+              } catch (error) {
+                alert('Error deleting post');
+              }
+            }
+          }
+        `
+        }}></script>
       </head>
       <body>
-        <h1>UserDO Demo</h1>
+        <h1>UserDO Demo with Database Tables</h1>
 
         <p>View extended demo <a href="https://userdo-hono-example.coey.dev">here</a></p>
 
@@ -253,14 +376,16 @@ app.get('/', async (c) => {
           </form>
           <a href="/protected/profile">View Profile (protected)</a><br /><br />
 
-          <details open>
+          <details>
             <summary>User Info</summary>
             <pre>{JSON.stringify(user, null, 2)}</pre>
           </details>
 
+          {/* UserDO KV Storage Demo */}
           <form method="post" action="/data">
             <fieldset>
-              <legend><h2>Set Data</h2></legend>
+              <legend><h2>🗄️ UserDO KV Storage</h2></legend>
+              <p><em>Traditional key-value storage using UserDO's built-in methods</em></p>
               <label for="data-key">Key:</label>
               <input id="data-key" name="key" type="text" placeholder="Key" value="data" readonly required /><br />
               <label for="data-value">Value:</label>
@@ -268,15 +393,60 @@ app.get('/', async (c) => {
               <button type="submit">Set Data</button>
               <hr />
               {data && (
-                <details open>
-                  <summary>Data</summary>
+                <details>
+                  <summary>Stored Data</summary>
                   <pre>{JSON.stringify(data, null, 2)}</pre>
                 </details>
               )}
             </fieldset>
           </form>
-        </section>}
 
+          {/* Database Tables Demo */}
+          <form method="post" action="/posts">
+            <fieldset>
+              <legend><h2>🗃️ Database Tables</h2></legend>
+
+              <p><em>Type-safe database tables with queries, backed by D1</em></p>
+              <label for="post-title">Post Title:</label>
+              <input id="post-title" name="title" type="text" placeholder="Enter post title" required /><br />
+              <label for="post-content">Post Content:</label>
+              <textarea id="post-content" name="content" placeholder="Write your post content here..." required rows={4}></textarea>
+              <button type="submit">Create Post</button>
+            </fieldset>
+          </form>
+
+          {posts && posts.length > 0 && (
+            <fieldset>
+              <legend><h2>Your Posts ({posts.length})</h2></legend>
+              <p><em>Posts are stored in a user-scoped database table with automatic querying</em></p>
+              {posts.map((post: any) => (
+                <div class="post" key={post.id}>
+                  <h3>{post.title}</h3>
+                  <p>{post.content}</p>
+                  <div class="post-meta">
+                    <small>Created: {new Date(post.createdAt).toLocaleString()}</small>
+                    <small> • ID: {post.id}</small>
+                    <br />
+                    <button
+                      class="delete-btn"
+                      onclick={'deletePost("' + post.id + '")'}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </fieldset>
+          )}
+
+          {posts && posts.length === 0 && (
+            <fieldset>
+              <legend><h2>Your Posts</h2></legend>
+              <p><em>No posts yet. Create your first post above!</em></p>
+            </fieldset>
+          )}
+
+        </section>}
 
       </body>
     </html>
