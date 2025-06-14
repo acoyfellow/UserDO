@@ -20,6 +20,10 @@
     ".": {
       "import": "./dist/src/index.js",
       "require": "./dist/src/index.js"
+    },
+    "./client": {
+      "import": "./dist/src/client.js",
+      "require": "./dist/src/client.js"
     }
   },
   "bugs": {
@@ -56,7 +60,7 @@
     "cf-typegen": "wrangler types",
     "check": "tsc && wrangler deploy --dry-run",
     "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
+    "dev": "npm run build && wrangler dev",
     "start": "wrangler dev",
     "build": "tsc",
     "prepublishOnly": "npm run build",

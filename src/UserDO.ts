@@ -46,6 +46,7 @@ type JwtPayload = {
 export interface Env {
   JWT_SECRET: string;
   USERDO: DurableObjectNamespace;
+  ASSETS?: Fetcher;
 }
 
 // Hash email for use as DO ID to prevent PII leaking in logs
