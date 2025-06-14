@@ -219,6 +219,69 @@ if (!result.ok) {
 - Returns `{ ok: true }` for set operations
 - Keys starting with `__` are reserved for internal UserDO use
 
+
+## Browser Client Quickstart
+
+A minimal browser client is available via `userdo/client`. It mirrors the backend methods for signup, login, logout and provides helpers for database collections and real-time events.
+
+### Include from a CDN
+
+```html
+<script type="module">
+  import { UserDOClient } from "https://unpkg.com/userdo/dist/src/client.js";
+  // Base URL pointing at your worker routes
+  const api = new UserDOClient("/api");
+</script>
+```
+
+With a bundler you can import from NPM:
+
+```ts
+import { UserDOClient } from "userdo/client";
+const api = new UserDOClient("/api");
+```
+
+### Local development
+
+When running `npm run dev`, the client script is served at `/client.js`:
+
+```html
+<script type="module">
+  import { UserDOClient } from "/client.js";
+  const api = new UserDOClient("/");
+</script>
+```
+
+### Authenticate
+
+```ts
+await api.signup("alice@example.com", "password");
+// or
+await api.login("alice@example.com", "password");
+// subscribe to auth changes
+api.onAuthStateChanged(user => {
+  console.log("auth", user);
+});
+```
+Tokens are stored in `localStorage` so users remain logged in after page refreshes.
+
+### Work with collections
+
+```ts
+const posts = api.collection("posts");
+await posts.create({ title: "Hello", content: "World" });
+const list = await posts.query().orderBy("createdAt", "desc").get();
+```
+
+### Real-time updates
+
+```ts
+api.on("table:posts:create", data => console.log("new post", data));
+api.connectRealtime(); // opens /events
+```
+
+Your server should send SSE messages when `broadcast(event, data)` is called. See the example app for one approach.
+
 ## API
 
 ### Inherited UserDO Methods

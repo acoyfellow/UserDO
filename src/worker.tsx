@@ -2,6 +2,7 @@ import { Hono, Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { Env, UserDO as BaseUserDO } from './UserDO'
 import { z } from 'zod'
+import clientJs from '../dist/src/client.js?raw'
 
 // Extend UserDO with database table functionality
 const PostSchema = z.object({
@@ -54,6 +55,11 @@ const getMyAppDO = (c: Context, email: string) => {
 }
 
 const app = new Hono<{ Bindings: Env, Variables: { user: User } }>()
+
+// Serve the browser client script for local development
+app.get('/client.js', (c) =>
+  c.text(clientJs, 200, { 'Content-Type': 'application/javascript' })
+)
 
 // --- AUTH ENDPOINTS ---
 app.post('/signup', async (c) => {
@@ -334,6 +340,7 @@ app.get('/', async (c) => {
           }
         `
         }}></script>
+        <script type="module" src="/client.js"></script>
       </head>
       <body>
         <h1>UserDO Demo with Database Tables</h1>
