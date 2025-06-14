@@ -6,75 +6,38 @@ export interface AuthResponse {
 
 export type Listener = (data: any) => void;
 
-export class UserDOClient {
-  private token: string | null = null;
-  private refreshToken: string | null = null;
+class UserDOClient {
   private user: { id: string; email: string } | null = null;
   private eventSource: EventSource | null = null;
   private listeners = new Map<string, Set<Listener>>();
   private authListeners = new Set<(user: { id: string; email: string } | null) => void>();
-  private refreshTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private baseUrl: string) {
-    this.loadFromStorage();
+    this.checkAuthStatus();
   }
 
   private get headers() {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
+    // Cookies are automatically sent with requests, no need to manually add Authorization header
     return headers;
   }
 
-  private persist() {
-    if (typeof localStorage === "undefined") return;
-    if (this.token) localStorage.setItem("userdo_token", this.token); else localStorage.removeItem("userdo_token");
-    if (this.refreshToken) localStorage.setItem("userdo_refresh_token", this.refreshToken); else localStorage.removeItem("userdo_refresh_token");
-  }
-
-  private loadFromStorage() {
-    if (typeof localStorage === "undefined") return;
-    const t = localStorage.getItem("userdo_token");
-    const r = localStorage.getItem("userdo_refresh_token");
-    if (t) this.token = t;
-    if (r) this.refreshToken = r;
-    if (this.token) {
-      this.updateUserFromToken();
-      this.emitAuthChange();
-    }
-  }
-
-  private decodeToken(token: string): { id: string; email: string; exp?: number } | null {
+  private async checkAuthStatus() {
     try {
-      const parts = token.split(".");
-      if (parts.length !== 3) return null;
-      const payload = JSON.parse(atob(parts[1]));
-      if (!payload.sub || !payload.email) return null;
-      return { id: payload.sub, email: payload.email, exp: payload.exp };
+      // Just make a request to check if we're authenticated via cookies
+      const res = await fetch(`${this.baseUrl}/me`, {
+        credentials: 'include' // Ensure cookies are sent
+      });
+      if (res.ok) {
+        const data = await res.json() as { user: { id: string; email: string } };
+        this.user = data.user;
+      } else {
+        this.user = null;
+      }
     } catch {
-      return null;
-    }
-  }
-
-  private scheduleRefresh(exp?: number) {
-    if (!exp || !this.refreshToken) return;
-    const ms = exp * 1000 - Date.now() - 5000;
-    if (ms <= 0) return;
-    if (this.refreshTimeout) clearTimeout(this.refreshTimeout);
-    this.refreshTimeout = setTimeout(() => this.refreshAccessToken(), ms);
-  }
-
-  private updateUserFromToken() {
-    if (!this.token) {
       this.user = null;
-      return;
     }
-    const info = this.decodeToken(this.token);
-    if (!info) {
-      this.user = null;
-      return;
-    }
-    this.user = { id: info.id, email: info.email };
-    this.scheduleRefresh(info.exp);
+    this.emitAuthChange();
   }
 
   private emitAuthChange() {
@@ -90,39 +53,16 @@ export class UserDOClient {
     this.authListeners.delete(listener);
   }
 
-  private async refreshAccessToken() {
-    if (!this.refreshToken) return;
-    try {
-      const res = await fetch(`${this.baseUrl}/refresh`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken: this.refreshToken })
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data: { token?: string } = await res.json();
-      if (data.token) {
-        this.token = data.token;
-        this.persist();
-        this.updateUserFromToken();
-        this.emitAuthChange();
-      }
-    } catch {
-      this.logout();
-    }
-  }
-
   async signup(email: string, password: string): Promise<AuthResponse> {
     const res = await fetch(`${this.baseUrl}/signup`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: this.headers,
+      credentials: 'include',
       body: JSON.stringify({ email, password })
     });
     if (!res.ok) throw new Error(await res.text());
     const data = (await res.json()) as AuthResponse;
-    this.token = data.token;
-    this.refreshToken = data.refreshToken;
-    this.persist();
-    this.updateUserFromToken();
+    this.user = data.user;
     this.emitAuthChange();
     return data;
   }
@@ -130,15 +70,13 @@ export class UserDOClient {
   async login(email: string, password: string): Promise<AuthResponse> {
     const res = await fetch(`${this.baseUrl}/login`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: this.headers,
+      credentials: 'include',
       body: JSON.stringify({ email, password })
     });
     if (!res.ok) throw new Error(await res.text());
     const data = (await res.json()) as AuthResponse;
-    this.token = data.token;
-    this.refreshToken = data.refreshToken;
-    this.persist();
-    this.updateUserFromToken();
+    this.user = data.user;
     this.emitAuthChange();
     return data;
   }
@@ -146,16 +84,10 @@ export class UserDOClient {
   async logout(): Promise<void> {
     await fetch(`${this.baseUrl}/logout`, {
       method: "POST",
-      headers: this.headers
+      headers: this.headers,
+      credentials: 'include'
     });
-    this.token = null;
-    this.refreshToken = null;
     this.user = null;
-    if (this.refreshTimeout) {
-      clearTimeout(this.refreshTimeout);
-      this.refreshTimeout = null;
-    }
-    this.persist();
     this.emitAuthChange();
   }
 
@@ -185,22 +117,39 @@ export class UserDOClient {
     const client = this;
     return {
       async create(data: any) {
-        const res = await fetch(base, { method: "POST", headers: client.headers, body: JSON.stringify(data) });
+        const res = await fetch(base, {
+          method: "POST",
+          headers: client.headers,
+          credentials: 'include',
+          body: JSON.stringify(data)
+        });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
       },
       async findById(id: string) {
-        const res = await fetch(`${base}/${id}`, { headers: client.headers });
+        const res = await fetch(`${base}/${id}`, {
+          headers: client.headers,
+          credentials: 'include'
+        });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
       },
       async update(id: string, updates: any) {
-        const res = await fetch(`${base}/${id}`, { method: "PUT", headers: client.headers, body: JSON.stringify(updates) });
+        const res = await fetch(`${base}/${id}`, {
+          method: "PUT",
+          headers: client.headers,
+          credentials: 'include',
+          body: JSON.stringify(updates)
+        });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
       },
       async delete(id: string) {
-        await fetch(`${base}/${id}`, { method: "DELETE", headers: client.headers });
+        await fetch(`${base}/${id}`, {
+          method: "DELETE",
+          headers: client.headers,
+          credentials: 'include'
+        });
       },
       query() {
         const params: Record<string, any> = {};
@@ -219,7 +168,10 @@ export class UserDOClient {
           },
           async get() {
             const qs = new URLSearchParams(params as any).toString();
-            const res = await fetch(`${base}?${qs}`, { headers: client.headers });
+            const res = await fetch(`${base}?${qs}`, {
+              headers: client.headers,
+              credentials: 'include'
+            });
             if (!res.ok) throw new Error(await res.text());
             return res.json();
           }
@@ -229,4 +181,5 @@ export class UserDOClient {
   }
 }
 
+export { UserDOClient };
 export default UserDOClient;

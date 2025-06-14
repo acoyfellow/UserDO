@@ -2,7 +2,6 @@ import { Hono, Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { Env, UserDO as BaseUserDO } from './UserDO'
 import { z } from 'zod'
-import clientJs from '../dist/src/client.js?raw'
 
 // Extend UserDO with database table functionality
 const PostSchema = z.object({
@@ -56,12 +55,88 @@ const getMyAppDO = (c: Context, email: string) => {
 
 const app = new Hono<{ Bindings: Env, Variables: { user: User } }>()
 
-// Serve the browser client script for local development
-app.get('/client.js', (c) =>
-  c.text(clientJs, 200, { 'Content-Type': 'application/javascript' })
-)
 
-// --- AUTH ENDPOINTS ---
+
+// --- JSON AUTH ENDPOINTS (for client) ---
+app.post('/api/signup', async (c) => {
+  const { email, password } = await c.req.json();
+  if (!email || !password) {
+    return c.json({ error: "Missing fields" }, 400);
+  }
+  const userDO = getUserDO(c, email.toLowerCase());
+  try {
+    const { user, token, refreshToken } = await userDO.signup({ email: email.toLowerCase(), password });
+    setCookie(c, 'token', token, {
+      httpOnly: true,
+      secure: true,
+      path: '/',
+      sameSite: 'Strict'
+    });
+    setCookie(c, 'refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: true,
+      path: '/',
+      sameSite: 'Strict'
+    });
+    return c.json({ user, token, refreshToken });
+  } catch (e: any) {
+    return c.json({ error: e.message || "Signup error" }, 400);
+  }
+});
+
+app.post('/api/login', async (c) => {
+  const { email, password } = await c.req.json();
+  if (!email || !password) {
+    return c.json({ error: "Missing fields" }, 400);
+  }
+  const userDO = getUserDO(c, email.toLowerCase());
+  try {
+    const { user, token, refreshToken } = await userDO.login({ email: email.toLowerCase(), password });
+    setCookie(c, 'token', token, {
+      httpOnly: true,
+      secure: true,
+      path: '/',
+      sameSite: 'Strict'
+    });
+    setCookie(c, 'refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: true,
+      path: '/',
+      sameSite: 'Strict'
+    });
+    return c.json({ user, token, refreshToken });
+  } catch (e: any) {
+    return c.json({ error: e.message || "Login error" }, 400);
+  }
+});
+
+app.post('/api/logout', async (c) => {
+  try {
+    const token = getCookie(c, 'token') || '';
+    const tokenParts = token.split('.');
+    if (tokenParts.length === 3 && tokenParts[1]) {
+      const payload = JSON.parse(atob(tokenParts[1]));
+      const email = payload.email?.toLowerCase();
+      if (email) {
+        const userDO = getUserDO(c, email);
+        await userDO.logout();
+      }
+    }
+  } catch (e) {
+    console.error('Logout error', e);
+  }
+  deleteCookie(c, 'token');
+  deleteCookie(c, 'refreshToken');
+  return c.json({ ok: true });
+});
+
+app.get('/api/me', async (c) => {
+  const user = c.get('user');
+  if (!user) return c.json({ error: 'Not authenticated' }, 401);
+  return c.json({ user });
+});
+
+// --- FORM AUTH ENDPOINTS (for server-side forms) ---
 app.post('/signup', async (c) => {
   const formData = await c.req.formData()
   const email = (formData.get('email') as string)?.toLowerCase();
@@ -340,10 +415,109 @@ app.get('/', async (c) => {
           }
         `
         }}></script>
-        <script type="module" src="/client.js"></script>
+        <script type="module" src="https://unpkg.com/userdo@latest/dist/src/client.js"></script>
+        <script type="module" dangerouslySetInnerHTML={{
+          __html: `
+          import { UserDOClient } from 'https://unpkg.com/userdo@latest/dist/src/client.js';
+          
+          // Initialize the client and expose it globally for debugging
+          const client = new UserDOClient('/api');
+          window.userDOClient = client;
+          
+          console.log('🚀 UserDO Client initialized:', client);
+          
+          // Listen for auth state changes
+          client.onAuthStateChanged(user => {
+            console.log('🔐 Auth state changed:', user);
+            const authStatus = document.getElementById('auth-status');
+            if (authStatus) {
+              authStatus.textContent = user ? \`Logged in as: \${user.email}\` : 'Not logged in';
+              authStatus.style.color = user ? 'green' : 'red';
+            }
+          });
+          
+          // Add client-side post creation
+          window.createPostClient = async (title, content) => {
+            try {
+              console.log('📝 Creating post via client:', { title, content });
+              const posts = client.collection('posts');
+              const result = await posts.create({ title, content, createdAt: new Date().toISOString() });
+              console.log('✅ Post created:', result);
+              location.reload(); // Refresh to show new post
+            } catch (error) {
+              console.error('❌ Error creating post:', error);
+              alert('Error creating post: ' + error.message);
+            }
+          };
+          
+          // Add client-side login
+          window.loginClient = async (email, password) => {
+            try {
+              console.log('🔑 Logging in via client:', email);
+              const result = await client.login(email, password);
+              console.log('✅ Login successful:', result);
+              location.reload(); // Refresh to show logged in state
+            } catch (error) {
+              console.error('❌ Login error:', error);
+              alert('Login error: ' + error.message);
+            }
+          };
+          
+          // Add client-side signup
+          window.signupClient = async (email, password) => {
+            try {
+              console.log('📝 Signing up via client:', email);
+              const result = await client.signup(email, password);
+              console.log('✅ Signup successful:', result);
+              location.reload(); // Refresh to show logged in state
+            } catch (error) {
+              console.error('❌ Signup error:', error);
+              alert('Signup error: ' + error.message);
+            }
+          };
+          
+          // Add client-side logout
+          window.logoutClient = async () => {
+            try {
+              console.log('🚪 Logging out via client');
+              await client.logout();
+              console.log('✅ Logout successful');
+              location.reload(); // Refresh to show logged out state
+            } catch (error) {
+              console.error('❌ Logout error:', error);
+              alert('Logout error: ' + error.message);
+            }
+          };
+          
+          // Debug function to check current state
+          window.debugUserDO = () => {
+            console.log('🔍 UserDO Client Debug Info:');
+            console.log('- Client instance:', client);
+            console.log('- Current user:', client.user);
+            console.log('- Has token:', !!client.token);
+            console.log('- Has refresh token:', !!client.refreshToken);
+            console.log('- LocalStorage tokens:', {
+              token: localStorage.getItem('userdo_token'),
+              refreshToken: localStorage.getItem('userdo_refresh_token')
+            });
+          };
+          
+          console.log('💡 Available debug functions:');
+          console.log('- window.userDOClient: Access the client instance');
+          console.log('- window.debugUserDO(): Show debug info');
+          console.log('- window.loginClient(email, password): Login via client');
+          console.log('- window.signupClient(email, password): Signup via client');
+          console.log('- window.logoutClient(): Logout via client');
+          console.log('- window.createPostClient(title, content): Create post via client');
+          `
+        }}></script>
       </head>
       <body>
         <h1>UserDO Demo with Database Tables</h1>
+
+        <div id="auth-status" style="padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; background: #f8f9fa;">
+          Checking auth status...
+        </div>
 
         <p>View extended demo <a href="https://userdo-hono-example.coey.dev">here</a></p>
 
@@ -356,22 +530,28 @@ app.get('/', async (c) => {
         {!user && <section>
           <form method="post" action="/signup">
             <fieldset>
-              <legend><h2>Sign Up</h2></legend>
+              <legend><h2>Sign Up (Server-side)</h2></legend>
               <label for="signup-email">Email:</label>
               <input id="signup-email" name="email" type="email" placeholder="Email" required /><br />
               <label for="signup-password">Password:</label>
               <input id="signup-password" name="password" type="password" placeholder="Password" required /><br />
-              <button type="submit">Sign Up</button>
+              <button type="submit">Sign Up (Server)</button>
+              <button type="button" onclick="signupClient(document.getElementById('signup-email').value, document.getElementById('signup-password').value)">
+                Sign Up (Client)
+              </button>
             </fieldset>
           </form>
           <form method="post" action="/login">
             <fieldset>
-              <legend><h2>Login</h2></legend>
+              <legend><h2>Login (Server-side)</h2></legend>
               <label for="login-email">Email:</label>
               <input id="login-email" name="email" type="email" placeholder="Email" required /><br />
               <label for="login-password">Password:</label>
               <input id="login-password" name="password" type="password" placeholder="Password" required /><br />
-              <button type="submit">Login</button>
+              <button type="submit">Login (Server)</button>
+              <button type="button" onclick="loginClient(document.getElementById('login-email').value, document.getElementById('login-password').value)">
+                Login (Client)
+              </button>
             </fieldset>
           </form>
         </section>}
@@ -379,7 +559,8 @@ app.get('/', async (c) => {
         {user && <section>
           <h2>Welcome {user.email}</h2>
           <form method="post" action="/logout">
-            <button type="submit">Logout</button>
+            <button type="submit">Logout (Server)</button>
+            <button type="button" onclick="logoutClient()">Logout (Client)</button>
           </form>
           <a href="/protected/profile">View Profile (protected)</a><br /><br />
 
@@ -418,7 +599,10 @@ app.get('/', async (c) => {
               <input id="post-title" name="title" type="text" placeholder="Enter post title" required /><br />
               <label for="post-content">Post Content:</label>
               <textarea id="post-content" name="content" placeholder="Write your post content here..." required rows={4}></textarea>
-              <button type="submit">Create Post</button>
+              <button type="submit">Create Post (Server)</button>
+              <button type="button" onclick="createPostClient(document.getElementById('post-title').value, document.getElementById('post-content').value)">
+                Create Post (Client)
+              </button>
             </fieldset>
           </form>
 

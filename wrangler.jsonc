@@ -7,6 +7,10 @@
     "nodejs_compat"
   ],
   "upload_source_maps": true,
+  "assets": {
+    "directory": "dist",
+    "binding": "ASSETS"
+  },
   "migrations": [
     {
       "new_sqlite_classes": [
