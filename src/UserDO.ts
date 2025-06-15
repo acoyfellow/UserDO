@@ -45,7 +45,7 @@ type JwtPayload = {
 
 export interface Env {
   JWT_SECRET: string;
-  USERDO: DurableObjectNamespace<Any>;
+  USERDO: DurableObjectNamespace<UserDO>;
   ASSETS?: Fetcher;
 }
 

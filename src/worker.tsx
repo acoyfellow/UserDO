@@ -55,7 +55,61 @@ const getMyAppDO = (c: Context, email: string) => {
 
 const app = new Hono<{ Bindings: Env, Variables: { user: User } }>()
 
+// --- AUTH MIDDLEWARE (must run before API routes) ---
+app.use('/*', async (c, next) => {
+  try {
+    const token = getCookie(c, 'token') || '';
+    const refreshToken = getCookie(c, 'refreshToken') || '';
 
+    // Debug logging
+    console.log('Auth middleware - URL:', c.req.url);
+    console.log('Auth middleware - Token:', token ? 'present' : 'missing');
+    console.log('Auth middleware - RefreshToken:', refreshToken ? 'present' : 'missing');
+
+    // Helper function to safely decode JWT payload
+    const decodeJWTPayload = (jwt: string) => {
+      try {
+        const parts = jwt.split('.');
+        if (parts.length !== 3 || !parts[1]) return null;
+        return JSON.parse(atob(parts[1]));
+      } catch {
+        return null;
+      }
+    };
+
+    const accessPayload = decodeJWTPayload(token);
+    const refreshPayload = decodeJWTPayload(refreshToken);
+    let email = accessPayload?.email?.toLowerCase() || refreshPayload?.email?.toLowerCase();
+
+    if (email) {
+      console.log('Auth middleware - Email found:', email);
+      const userDO = getUserDO(c, email);
+      const result = await userDO.verifyToken({ token: token });
+      console.log('Auth middleware - Token verification result:', result);
+      if (!result.ok) {
+        const refreshResult = await userDO.refreshToken({ refreshToken });
+        if (!refreshResult.token) return c.json({ error: 'Unauthorized' }, 401);
+        setCookie(c, 'token', refreshResult.token, {
+          httpOnly: true,
+          secure: false, // Allow HTTP for localhost
+          path: '/',
+          sameSite: 'Lax'
+        });
+        // Verify the new token and set user
+        const newResult = await userDO.verifyToken({ token: refreshResult.token });
+        if (newResult.ok && newResult.user) {
+          c.set('user', newResult.user);
+        }
+      } else if (result.ok && result.user) {
+        c.set('user', result.user);
+      }
+    }
+    await next();
+  } catch (e) {
+    console.error(e);
+    await next();
+  };
+});
 
 // --- JSON AUTH ENDPOINTS (for client) ---
 app.post('/api/signup', async (c) => {
@@ -68,15 +122,15 @@ app.post('/api/signup', async (c) => {
     const { user, token, refreshToken } = await userDO.signup({ email: email.toLowerCase(), password });
     setCookie(c, 'token', token, {
       httpOnly: true,
-      secure: true,
+      secure: false, // Allow HTTP for localhost
       path: '/',
-      sameSite: 'Strict'
+      sameSite: 'Lax'
     });
     setCookie(c, 'refreshToken', refreshToken, {
       httpOnly: true,
-      secure: true,
+      secure: false, // Allow HTTP for localhost
       path: '/',
-      sameSite: 'Strict'
+      sameSite: 'Lax'
     });
     return c.json({ user, token, refreshToken });
   } catch (e: any) {
@@ -94,15 +148,15 @@ app.post('/api/login', async (c) => {
     const { user, token, refreshToken } = await userDO.login({ email: email.toLowerCase(), password });
     setCookie(c, 'token', token, {
       httpOnly: true,
-      secure: true,
+      secure: false, // Allow HTTP for localhost
       path: '/',
-      sameSite: 'Strict'
+      sameSite: 'Lax'
     });
     setCookie(c, 'refreshToken', refreshToken, {
       httpOnly: true,
-      secure: true,
+      secure: false, // Allow HTTP for localhost
       path: '/',
-      sameSite: 'Strict'
+      sameSite: 'Lax'
     });
     return c.json({ user, token, refreshToken });
   } catch (e: any) {
@@ -214,50 +268,7 @@ app.post('/logout', async (c) => {
   return c.redirect('/');
 })
 
-// --- AUTH MIDDLEWARE ---
-app.use('/*', async (c, next) => {
-  try {
-    const token = getCookie(c, 'token') || '';
-    const refreshToken = getCookie(c, 'refreshToken') || '';
 
-    // Helper function to safely decode JWT payload
-    const decodeJWTPayload = (jwt: string) => {
-      try {
-        const parts = jwt.split('.');
-        if (parts.length !== 3 || !parts[1]) return null;
-        return JSON.parse(atob(parts[1]));
-      } catch {
-        return null;
-      }
-    };
-
-    const accessPayload = decodeJWTPayload(token);
-    const refreshPayload = decodeJWTPayload(refreshToken);
-    let email = accessPayload?.email?.toLowerCase() || refreshPayload?.email?.toLowerCase();
-
-    if (email) {
-      const userDO = getUserDO(c, email);
-      const result = await userDO.verifyToken({ token: token });
-      if (!result.ok) {
-        const refreshResult = await userDO.refreshToken({ refreshToken });
-        if (!refreshResult.token) return c.json({ error: 'Unauthorized' }, 401);
-        setCookie(c, 'token', refreshResult.token, {
-          httpOnly: true,
-          secure: true,
-          path: '/',
-          sameSite: 'Strict'
-        })
-      }
-      if (result.ok && result.user) {
-        c.set('user', result.user ?? undefined);
-      };
-    }
-    await next();
-  } catch (e) {
-    console.error(e);
-    await next();
-  };
-});
 
 app.get("/data", async (c) => {
   const user = c.get('user');
@@ -333,7 +344,7 @@ app.get('/', async (c) => {
   return c.html(
     <html>
       <head>
-        <title>UserDO Demo with Database Tables</title>
+        <title>UserDO Demo</title>
         <style>{`
           body {
             font-family: Avenir, Inter, Helvetica, Arial, sans-serif;
@@ -513,7 +524,7 @@ app.get('/', async (c) => {
         }}></script>
       </head>
       <body>
-        <h1>UserDO Demo with Database Tables</h1>
+        <h1>UserDO Demo</h1>
 
         <div id="auth-status" style="padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; background: #f8f9fa;">
           Checking auth status...
