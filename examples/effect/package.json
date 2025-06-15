@@ -10,12 +10,12 @@
   },
   "dependencies": {
     "effect": "^3.16.7",
-    "userdo": "file:../../",
-    "zod": "^3.25.32"
+    "userdo": "latest",
+    "zod": "^3.25.64"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.0.0",
-    "typescript": "^5.0.0",
-    "wrangler": "^3.0.0"
+    "@cloudflare/workers-types": "^4.20250614.0",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.20.0"
   }
 }

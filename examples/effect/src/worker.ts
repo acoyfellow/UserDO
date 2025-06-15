@@ -2,6 +2,9 @@ import { Effect } from "effect";
 import { UserDO, getUserDO } from "userdo";
 import { z } from "zod";
 
+const email = "demo@example.com";
+const password = "pass123098";
+
 const PostSchema = z.object({
   title: z.string(),
   content: z.string(),
@@ -11,48 +14,100 @@ const PostSchema = z.object({
 export class MyAppDO extends UserDO {
   posts = this.table("posts", PostSchema, { userScoped: true });
 
-  createPostEff(title: string, content: string) {
-    return Effect.tryPromise(() =>
-      this.posts.create({ title, content, createdAt: new Date().toISOString() })
-    );
+  // Regular async methods (not Effect-based)
+  async createPost(title: string, content: string) {
+    return this.posts.create({ title, content, createdAt: new Date().toISOString() });
   }
 
-  listPostsEff() {
-    return Effect.tryPromise(() =>
-      this.posts.orderBy("createdAt", "desc").get()
-    );
+  async listPosts() {
+    return this.posts.orderBy("createdAt", "desc").get();
   }
 }
 
-function fullFlow(stub: MyAppDO, title: string, content: string) {
-  return Effect.gen(function* (_) {
-    // Sign up on first run, otherwise just log in
-    yield* _(Effect.tryPromise(() =>
-      stub.signup({ email: "demo@example.com", password: "pass" })
-    ).catchAll(() =>
-      Effect.tryPromise(() =>
-        stub.login({ email: "demo@example.com", password: "pass" })
-      )
-    ));
+// Simple Effect example that doesn't use UserDO methods
+function simpleEffect() {
+  return Effect.gen(function* () {
+    const result = yield* Effect.succeed("Hello from Effect!");
+    return result;
+  });
+}
 
-    yield* _(stub.createPostEff(title, content));
-    return yield* _(stub.listPostsEff());
+// Effect-based UserDO operations
+function createPostEffect(stub: MyAppDO, title: string, content: string) {
+  return Effect.tryPromise({
+    try: () => stub.createPost(title, content),
+    catch: (error: unknown) => new Error(`Failed to create post: ${error}`)
+  });
+}
+
+function listPostsEffect(stub: MyAppDO) {
+  return Effect.tryPromise({
+    try: () => stub.listPosts(),
+    catch: (error: unknown) => new Error(`Failed to list posts: ${error}`)
+  });
+}
+
+function authEffect(stub: MyAppDO) {
+  const signupEffect = Effect.tryPromise({
+    try: () => stub.signup({ email, password }),
+    catch: (error: unknown) => new Error(`Signup failed: ${error}`)
+  });
+
+  const loginEffect = Effect.tryPromise({
+    try: () => stub.login({ email, password }),
+    catch: (error: unknown) => new Error(`Login failed: ${error}`)
+  });
+
+  return signupEffect.pipe(
+    Effect.catchAll(() => loginEffect)
+  );
+}
+
+function fullFlow(stub: MyAppDO, title: string, content: string) {
+  return Effect.gen(function* () {
+    // Authenticate first
+    yield* authEffect(stub);
+
+    // Create a post
+    yield* createPostEffect(stub, title, content);
+
+    // List all posts
+    const posts = yield* listPostsEffect(stub);
+    return posts;
   });
 }
 
 export default {
-  async fetch(request: Request, env: Env) {
-    const stub = await getUserDO<MyAppDO>(env.MY_APP_DO, "demo@example.com");
+  async fetch(request: Request, env: any, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
 
-    if (request.method === "POST") {
-      const { title, content } = await request.json();
-      const program = fullFlow(stub, title, content);
-      const posts = await Effect.runPromise(program);
-      return Response.json(posts);
+    if (url.pathname === "/simple") {
+      const result = await Effect.runPromise(simpleEffect());
+      return new Response(JSON.stringify({ message: result }), {
+        headers: { "Content-Type": "application/json" }
+      });
     }
 
-    const program = stub.listPostsEff();
-    const posts = await Effect.runPromise(program);
-    return Response.json(posts);
-  },
+    if (url.pathname === "/posts") {
+      try {
+        const stub = await getUserDO<MyAppDO>(env.MY_APP_DO, email);
+        const posts = await Effect.runPromise(
+          fullFlow(stub, "My First Post", "This is the content of my first post!")
+        );
+
+        return new Response(JSON.stringify({ posts }), {
+          headers: { "Content-Type": "application/json" }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({
+          error: error instanceof Error ? error.message : String(error)
+        }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+    }
+
+    return new Response("UserDO Effect Example\n\nTry:\n- /simple\n- /posts");
+  }
 };
