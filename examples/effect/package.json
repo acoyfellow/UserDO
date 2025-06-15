@@ -1,0 +1,21 @@
+{
+  "name": "userdo-effect-example",
+  "version": "1.0.0",
+  "description": "UserDO example using the Effect library",
+  "type": "module",
+  "main": "src/worker.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "effect": "^3.16.7",
+    "userdo": "file:../../",
+    "zod": "^3.25.32"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
+    "typescript": "^5.0.0",
+    "wrangler": "^3.0.0"
+  }
+}

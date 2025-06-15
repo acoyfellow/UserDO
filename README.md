@@ -69,6 +69,7 @@ export class MyAppDO extends UserDO {
 
 See [`examples/hono`](./examples/hono) for a full working Hono example.
 See [`examples/alchemy`](./examples/alchemy) for a minimal setup with [Alchemy](https://alchemy.run) that shows how you get D1-style tables without any separate database configuration.
+See [`examples/effect`](./examples/effect) for an integration with the Effect library for declarative async flows.
 
 ## Install
 ```bash
@@ -396,5 +397,7 @@ Never use the example secret in production. Always set a strong, random secret f
 - [ ] Webhooks or event hooks for user actions (signup, login, etc.)
 - [ ] Multi-factor authentication (MFA)
 - [ ] Usage analytics and audit logging
+- [ ] Effect library examples for typed async flows
+- [ ] Alchemy + Effect deployment guide
 
 Have a feature request? Open an issue or PR!
