@@ -31,8 +31,8 @@
     ]
   },
   "include": [
-    "*.ts",
-    "*.js"
+    "alchemy.run.ts",
+    "src/**/*"
   ],
   "exclude": [
     "node_modules",
