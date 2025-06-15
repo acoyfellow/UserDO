@@ -67,7 +67,8 @@ export class MyAppDO extends UserDO {
 // const myAppDO = await getUserDO(env.MY_APP_DO, email);
 ```
 
-See [`examples/`](./examples/) folder for a full working Hono example.
+See [`examples/hono`](./examples/hono) for a full working Hono example.
+See [`examples/alchemy`](./examples/alchemy) for a minimal setup with [Alchemy](https://alchemy.run) that shows how you get D1-style tables without any separate database configuration.
 
 ## Install
 ```bash
