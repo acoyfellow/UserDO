@@ -410,7 +410,7 @@ export class UserDO extends DurableObject {
     return this.revokeAllRefreshTokens();
   }
 
-  protected table<T extends z.ZodSchema>(
+  public table<T extends z.ZodSchema>(
     name: string,
     schema: T,
     options?: TableOptions
@@ -418,7 +418,7 @@ export class UserDO extends DurableObject {
     return this.database.table(name, schema, options);
   }
 
-  protected get db() {
+  public get db() {
     return this.database.raw;
   }
 
