@@ -1,5 +1,6 @@
 import { Hono, Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
+import { createAuthMiddleware } from './authMiddleware'
 import { UserDO, type Env } from './UserDO'
 import {
   SignupRequestSchema,
@@ -24,69 +25,7 @@ const isRequestSecure = (c: Context) => new URL(c.req.url).protocol === 'https:'
 const app = new Hono<{ Bindings: Env, Variables: { user: User } }>()
 
 // --- CLEAN AUTH MIDDLEWARE ---
-app.use('/*', async (c, next) => {
-  const url = new URL(c.req.url);
-  const token = getCookie(c, 'token') || '';
-  const refreshToken = getCookie(c, 'refreshToken') || '';
-
-  console.log(`🔐 Auth check for ${url.pathname}:`, {
-    hasToken: !!token,
-    hasRefreshToken: !!refreshToken
-  });
-
-  if (token || refreshToken) {
-    try {
-      // Helper to decode JWT payload safely
-      const decodeJWT = (jwt: string) => {
-        try {
-          const parts = jwt.split('.');
-          return parts.length === 3 ? JSON.parse(atob(parts[1])) : null;
-        } catch { return null; }
-      };
-
-      const email = decodeJWT(token)?.email?.toLowerCase() || decodeJWT(refreshToken)?.email?.toLowerCase();
-
-      if (email) {
-        const userDO = getUserDOFromContext(c, email);
-
-        // Try access token first
-        let result = await userDO.verifyToken({ token });
-        console.log(`🔑 Token verification for ${email}:`, { success: result.ok });
-
-        // If access token invalid, try refresh
-        if (!result.ok && refreshToken) {
-          try {
-            console.log('🔄 Attempting token refresh...');
-            const { token: newToken } = await userDO.refreshToken({ refreshToken });
-            setCookie(c, 'token', newToken, {
-              httpOnly: true,
-              secure: isRequestSecure(c),
-              path: '/',
-              sameSite: 'Lax'
-            });
-            result = await userDO.verifyToken({ token: newToken });
-            console.log('✅ Token refreshed successfully');
-          } catch (e) {
-            console.log('❌ Token refresh failed:', e);
-            // Clear invalid tokens
-            deleteCookie(c, 'token');
-            deleteCookie(c, 'refreshToken');
-          }
-        }
-
-        // Set user if authenticated
-        if (result.ok && result.user) {
-          console.log(`👤 User set: ${result.user.email}`);
-          c.set('user', result.user);
-        }
-      }
-    } catch (e) {
-      console.error('Auth error:', e);
-    }
-  }
-
-  await next();
-});
+app.use('/*', createAuthMiddleware((c, email) => getUserDOFromContext(c, email)));
 
 // --- JSON AUTH ENDPOINTS (for client) ---
 app.post('/api/signup', async (c): Promise<Response> => {
@@ -385,69 +324,7 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
   const getUserDO = (c: Context, email: string) => getUserDOFromContext(c, email, bindingName);
 
   // Auth middleware - same clean version as main worker
-  app.use('*', async (c, next) => {
-    const url = new URL(c.req.url);
-    const token = getCookie(c, 'token') || '';
-    const refreshToken = getCookie(c, 'refreshToken') || '';
-
-    console.log(`🔐 [createUserDOWorker] Auth check for ${url.pathname}:`, {
-      hasToken: !!token,
-      hasRefreshToken: !!refreshToken
-    });
-
-    if (token || refreshToken) {
-      try {
-        // Helper to decode JWT payload safely
-        const decodeJWT = (jwt: string) => {
-          try {
-            const parts = jwt.split('.');
-            return parts.length === 3 ? JSON.parse(atob(parts[1])) : null;
-          } catch { return null; }
-        };
-
-        const email = decodeJWT(token)?.email?.toLowerCase() || decodeJWT(refreshToken)?.email?.toLowerCase();
-
-        if (email) {
-          const userDO = getUserDO(c, email);
-
-          // Try access token first
-          let result = await userDO.verifyToken({ token });
-          console.log(`🔑 [createUserDOWorker] Token verification for ${email}:`, { success: result.ok });
-
-          // If access token invalid, try refresh
-          if (!result.ok && refreshToken) {
-            try {
-              console.log('🔄 [createUserDOWorker] Attempting token refresh...');
-              const { token: newToken } = await userDO.refreshToken({ refreshToken });
-              setCookie(c, 'token', newToken, {
-                httpOnly: true,
-                secure: isRequestSecure(c),
-                path: '/',
-                sameSite: 'Lax'
-              });
-              result = await userDO.verifyToken({ token: newToken });
-              console.log('✅ [createUserDOWorker] Token refreshed successfully');
-            } catch (e) {
-              console.log('❌ [createUserDOWorker] Token refresh failed:', e);
-              // Clear invalid tokens
-              deleteCookie(c, 'token');
-              deleteCookie(c, 'refreshToken');
-            }
-          }
-
-          // Set user if authenticated
-          if (result.ok && result.user) {
-            console.log(`👤 [createUserDOWorker] User set: ${result.user.email}`);
-            c.set('user', result.user);
-          }
-        }
-      } catch (e) {
-        console.error('[createUserDOWorker] Auth error:', e);
-      }
-    }
-
-    await next();
-  });
+  app.use('*', createAuthMiddleware(getUserDO, 'createUserDOWorker'));
 
   // Copy all the routes from the main app but use the custom getUserDO function
   // API endpoints

@@ -6,5 +6,6 @@ export { UserDOClient } from "./client";
 
 // Worker exports
 export { userDOWorker, createUserDOWorker, createWebSocketHandler, getUserDOFromContext, broadcastToUser } from "./worker";
+export { createAuthMiddleware } from "./authMiddleware";
 export type { UserDOEndpoints, EndpointRequest, EndpointResponse, EndpointQuery } from "./worker-types";
 export * from "./worker-types";
