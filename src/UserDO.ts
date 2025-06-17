@@ -125,18 +125,26 @@ export class UserDO extends DurableObject {
   protected storage: DurableObjectStorage;
   protected env: Env;
   protected database: UserDODatabase;
+  private webSockets = new Set<WebSocket>();
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
     this.state = state;
     this.storage = state.storage;
     this.env = env;
-    this.database = new UserDODatabase(this.storage, this.getCurrentUserId(), this.broadcast.bind(this));
+    this.database = new UserDODatabase(
+      this.storage,
+      this.getCurrentUserId(),
+      this.broadcast.bind(this)
+    );
   }
 
   private async checkRateLimit(): Promise<void> {
     const now = Date.now();
-    const record = await this.storage.get<{ count: number; resetAt: number }>(RATE_LIMIT_KEY);
+    const record = await this.storage.get<{
+      count: number;
+      resetAt: number
+    }>(RATE_LIMIT_KEY);
     if (record && record.resetAt > now) {
       if (record.count >= RATE_LIMIT_MAX) {
         throw new Error('Too many requests');
@@ -377,8 +385,8 @@ export class UserDO extends DurableObject {
     if (isReservedKey(key)) throw new Error("Key is reserved");
     await this.storage.put(key, value);
 
-    // Broadcast KV storage event
-    this.broadcast(`kv:set`, { key, value });
+    // Broadcast KV change
+    this.broadcast(`kv:${key}`, { key, value });
 
     return { ok: true };
   }
@@ -465,40 +473,57 @@ export class UserDO extends DurableObject {
     return this.state.id.toString();
   }
 
+  // WebSocket connection handling
+  async handleWebSocket(request: Request): Promise<Response> {
+    const upgradeHeader = request.headers.get('Upgrade');
+    if (!upgradeHeader || upgradeHeader !== 'websocket') {
+      return new Response('Expected Upgrade: websocket', { status: 426 });
+    }
+
+    const webSocketPair = new WebSocketPair();
+    const [client, server] = Object.values(webSocketPair);
+
+    this.webSockets.add(server);
+
+    server.accept();
+    server.addEventListener('close', () => {
+      this.webSockets.delete(server);
+    });
+
+    server.addEventListener('message', (event) => {
+      try {
+        const message = JSON.parse(event.data as string);
+        this.handleWebSocketMessage(server, message);
+      } catch (error) {
+        console.error('WebSocket message error:', error);
+      }
+    });
+
+    return new Response(null, {
+      status: 101,
+      webSocket: client,
+    });
+  }
+
+  private handleWebSocketMessage(ws: WebSocket, message: any) {
+    // Handle incoming WebSocket messages (for future use)
+    console.log('WebSocket message:', message);
+  }
+
+  // Broadcast to all connected WebSocket clients
   protected broadcast(event: string, data: any): void {
-    // Store event for SSE streaming
-    const eventData = { event, data, timestamp: Date.now() };
-    this.storage.put(`__event_${Date.now()}_${Math.random()}`, eventData);
-  }
+    const message = JSON.stringify({ event, data, timestamp: Date.now() });
 
-  async getEvents(since?: number): Promise<Array<{ event: string; data: any; timestamp: number }>> {
-    const events: Array<{ event: string; data: any; timestamp: number }> = [];
-    const allKeys = await this.storage.list({ prefix: '__event_' });
-    const now = Date.now();
-    const oneHourAgo = now - (60 * 60 * 1000); // 1 hour ago
-    const keysToDelete: string[] = [];
-
-    for (const [key, value] of allKeys) {
-      const eventData = value as { event: string; data: any; timestamp: number };
-
-      // Clean up events older than 1 hour
-      if (eventData.timestamp < oneHourAgo) {
-        keysToDelete.push(key);
-        continue;
-      }
-
-      if (!since || eventData.timestamp > since) {
-        events.push(eventData);
+    for (const ws of this.webSockets) {
+      try {
+        ws.send(message);
+      } catch (error) {
+        // Remove broken connections
+        this.webSockets.delete(ws);
       }
     }
-
-    // Clean up old events
-    if (keysToDelete.length > 0) {
-      await Promise.all(keysToDelete.map(key => this.storage.delete(key)));
-    }
-
-    return events.sort((a, b) => a.timestamp - b.timestamp);
   }
+
 }
 
 export default {};

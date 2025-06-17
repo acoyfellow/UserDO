@@ -10,7 +10,7 @@ export class GenericTable<T = any> {
     private schema: z.ZodSchema<T>,
     private storage: DurableObjectStorage,
     private userId: string,
-    private broadcast: (event: string, data: any) => void
+    private broadcast?: (event: string, data: any) => void
   ) { }
 
   async create(data: T): Promise<T & { id: string; createdAt: Date; updatedAt: Date }> {
@@ -23,7 +23,10 @@ export class GenericTable<T = any> {
     this.storage.sql.exec(insertSQL, id, JSON.stringify(validated), now, now, this.userId);
 
     const result = { ...validated, id, createdAt: new Date(now), updatedAt: new Date(now) };
-    this.broadcast(`table:${this.tableName}:create`, { type: 'create', data: result });
+
+    // Broadcast table change
+    this.broadcast?.(`table:${this.tableName}`, { type: 'create', data: result });
+
     return result;
   }
 
@@ -59,14 +62,19 @@ export class GenericTable<T = any> {
     this.storage.sql.exec(updateSQL, JSON.stringify(validated), now, id, this.userId);
 
     const result = { ...validated, id, createdAt: existing.createdAt, updatedAt: new Date(now) };
-    this.broadcast(`table:${this.tableName}:update`, { type: 'update', data: result });
+
+    // Broadcast table change
+    this.broadcast?.(`table:${this.tableName}`, { type: 'update', data: result });
+
     return result;
   }
 
   async delete(id: string): Promise<void> {
     const deleteSQL = `DELETE FROM "${this.tableName}" WHERE id = ? AND user_id = ?`;
     this.storage.sql.exec(deleteSQL, id, this.userId);
-    this.broadcast(`table:${this.tableName}:delete`, { type: 'delete', data: { id } });
+
+    // Broadcast table change
+    this.broadcast?.(`table:${this.tableName}`, { type: 'delete', data: { id } });
   }
 
   where(path: string, operator: '==' | '!=' | '>' | '<' | 'includes', value: any): GenericQuery<T> {

@@ -4,13 +4,15 @@ export interface AuthResponse {
   refreshToken: string;
 }
 
-export type Listener = (data: any) => void;
+type ChangeListener = (data: any) => void;
 
 class UserDOClient {
   private user: { id: string; email: string } | null = null;
-  private eventSource: EventSource | null = null;
-  private listeners = new Map<string, Set<Listener>>();
   private authListeners = new Set<(user: { id: string; email: string } | null) => void>();
+  private ws: WebSocket | null = null;
+  private wsReconnectTimer: any = null;
+  private changeListeners = new Map<string, Set<ChangeListener>>();
+  private isConnecting = false;
 
   constructor(private baseUrl: string) {
     this.checkAuthStatus();
@@ -42,6 +44,107 @@ class UserDOClient {
 
   private emitAuthChange() {
     this.authListeners.forEach((l) => l(this.user));
+
+    console.log('🔐 Auth state changed, checking WebSocket connection...', {
+      user: this.user,
+      hasWs: !!this.ws,
+      isConnecting: this.isConnecting
+    });
+
+    // Connect/disconnect WebSocket based on auth state
+    if (this.user && !this.ws) {
+      console.log('🔌 Triggering WebSocket connection...');
+      this.connectWebSocket();
+    } else if (!this.user && this.ws) {
+      console.log('🔌 Disconnecting WebSocket (user logged out)...');
+      this.disconnectWebSocket();
+    } else if (this.user && this.ws) {
+      console.log('🔌 WebSocket already connected');
+    } else {
+      console.log('🔌 No user, no WebSocket connection needed');
+    }
+  }
+
+  private connectWebSocket() {
+    if (this.isConnecting || this.ws) return;
+
+    this.isConnecting = true;
+
+    // Build WebSocket URL from current page origin
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}${this.baseUrl}/ws`;
+
+    console.log('🔌 Attempting WebSocket connection to:', wsUrl);
+
+    try {
+      this.ws = new WebSocket(wsUrl);
+
+      this.ws.onopen = () => {
+        console.log('🔌 WebSocket connected');
+        this.isConnecting = false;
+        if (this.wsReconnectTimer) {
+          clearTimeout(this.wsReconnectTimer);
+          this.wsReconnectTimer = null;
+        }
+      };
+
+      this.ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          this.handleRealtimeMessage(message);
+        } catch (error) {
+          console.error('WebSocket message error:', error);
+        }
+      };
+
+      this.ws.onclose = () => {
+        console.log('🔌 WebSocket disconnected');
+        this.ws = null;
+        this.isConnecting = false;
+
+        // Auto-reconnect if user is still authenticated
+        if (this.user && !this.wsReconnectTimer) {
+          this.wsReconnectTimer = setTimeout(() => {
+            this.wsReconnectTimer = null;
+            this.connectWebSocket();
+          }, 3000); // Reconnect after 3 seconds
+        }
+      };
+
+      this.ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        this.isConnecting = false;
+      };
+
+    } catch (error) {
+      console.error('WebSocket connection error:', error);
+      this.isConnecting = false;
+    }
+  }
+
+  private disconnectWebSocket() {
+    if (this.wsReconnectTimer) {
+      clearTimeout(this.wsReconnectTimer);
+      this.wsReconnectTimer = null;
+    }
+
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+  }
+
+  private handleRealtimeMessage(message: { event: string; data: any; timestamp: number }) {
+    const listeners = this.changeListeners.get(message.event);
+    if (listeners) {
+      listeners.forEach(listener => {
+        try {
+          listener(message.data);
+        } catch (error) {
+          console.error('Change listener error:', error);
+        }
+      });
+    }
   }
 
   onAuthStateChanged(listener: (user: { id: string; email: string } | null) => void) {
@@ -88,29 +191,11 @@ class UserDOClient {
       credentials: 'include'
     });
     this.user = null;
+    this.disconnectWebSocket();
     this.emitAuthChange();
   }
 
-  on(event: string, listener: Listener) {
-    if (!this.listeners.has(event)) this.listeners.set(event, new Set());
-    this.listeners.get(event)!.add(listener);
-  }
 
-  off(event: string, listener: Listener) {
-    this.listeners.get(event)?.delete(listener);
-  }
-
-  connectRealtime() {
-    if (this.eventSource) return;
-    this.eventSource = new EventSource(`${this.baseUrl}/events`);
-    this.eventSource.onmessage = (ev: MessageEvent) => {
-      const data = typeof ev.data === "string" ? ev.data : "";
-      if (!data) return;
-      const parsed = JSON.parse(data);
-      const listeners = this.listeners.get(ev.type) || new Set();
-      listeners.forEach(l => l(parsed));
-    };
-  }
   // KV Storage methods
   async get(key: string): Promise<any> {
     const res = await fetch(`${this.baseUrl.replace('/api', '')}/data?key=${encodeURIComponent(key)}`, {
@@ -131,6 +216,26 @@ class UserDOClient {
     });
     if (!res.ok) throw new Error(await res.text());
     return { ok: true };
+  }
+
+  // Watch KV changes
+  onChange(key: string, listener: ChangeListener): () => void {
+    const eventKey = `kv:${key}`;
+    if (!this.changeListeners.has(eventKey)) {
+      this.changeListeners.set(eventKey, new Set());
+    }
+    this.changeListeners.get(eventKey)!.add(listener);
+
+    // Return unsubscribe function
+    return () => {
+      const listeners = this.changeListeners.get(eventKey);
+      if (listeners) {
+        listeners.delete(listener);
+        if (listeners.size === 0) {
+          this.changeListeners.delete(eventKey);
+        }
+      }
+    };
   }
 
   collection(name: string) {
@@ -171,6 +276,25 @@ class UserDOClient {
           headers: client.headers,
           credentials: 'include'
         });
+      },
+      // Watch collection changes
+      onChange(listener: ChangeListener): () => void {
+        const eventKey = `table:${name}`;
+        if (!client.changeListeners.has(eventKey)) {
+          client.changeListeners.set(eventKey, new Set());
+        }
+        client.changeListeners.get(eventKey)!.add(listener);
+
+        // Return unsubscribe function
+        return () => {
+          const listeners = client.changeListeners.get(eventKey);
+          if (listeners) {
+            listeners.delete(listener);
+            if (listeners.size === 0) {
+              client.changeListeners.delete(eventKey);
+            }
+          }
+        };
       },
       query() {
         const params: Record<string, any> = {};

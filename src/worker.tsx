@@ -224,20 +224,7 @@ app.get('/api/me', async (c): Promise<Response> => {
 
 
 
-// Events API for real-time updates (polling-based)
-app.get('/api/events', async (c): Promise<Response> => {
-  const user = c.get('user');
-  if (!user) {
-    const errorResponse: ErrorResponse = { error: 'Not authenticated' };
-    return c.json(errorResponse, 401);
-  }
 
-  const userDO = getUserDOFromContext(c, user.email);
-  const since = parseInt(c.req.query('since') || '0');
-  const events = await userDO.getEvents(since);
-
-  return c.json(events);
-});
 
 // --- FORM AUTH ENDPOINTS (for server-side forms) ---
 app.post('/signup', async (c) => {
@@ -595,21 +582,20 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
     return c.json({ user });
   });
 
-
-
-  app.get('/api/events', async (c): Promise<Response> => {
+  // WebSocket endpoint for real-time updates
+  app.get('/api/ws', async (c): Promise<Response> => {
     const user = c.get('user');
     if (!user) {
-      const errorResponse: ErrorResponse = { error: 'Not authenticated' };
-      return c.json(errorResponse, 401);
+      return new Response('Unauthorized', { status: 401 });
     }
 
     const userDO = getUserDO(c, user.email);
-    const since = parseInt(c.req.query('since') || '0');
-    const events = await userDO.getEvents(since);
-
-    return c.json(events);
+    return await userDO.handleWebSocket(c.req.raw);
   });
+
+
+
+
 
   // Form endpoints
   app.post('/signup', async (c) => {
@@ -757,7 +743,6 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
       endpoints: {
         auth: ['/api/signup', '/api/login', '/api/logout', '/api/me'],
         data: ['/data'],
-        events: ['/api/events'],
         passwordReset: ['/api/password-reset/request', '/api/password-reset/confirm']
       },
       docs: 'https://github.com/acoyfellow/userdo'

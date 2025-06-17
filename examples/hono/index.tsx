@@ -180,9 +180,10 @@ userDOWorker.get('/', async (c) => {
           }
         `
         }}></script>
+        <script type="module" src="https://unpkg.com/userdo@latest/dist/src/client.js"></script>
         <script type="module" dangerouslySetInnerHTML={{
           __html: `
-          import { UserDOClient } from '../../dist/src/client.js';
+          import { UserDOClient } from 'https://unpkg.com/userdo@latest/dist/src/client.js';
           
           // Initialize the client and expose it globally for debugging
           const client = new UserDOClient('/api');
@@ -271,35 +272,38 @@ userDOWorker.get('/', async (c) => {
             }
           };
           
-          // Simple real-time functionality
-          window.connectRealtime = () => {
-            console.log('⚡ Enabling real-time updates...');
-            client.connectRealtime();
-            
-            // Listen for data changes
-            client.on('table:posts:create', (data) => {
-              alert('⚡ Real-time: New post created!');
-              console.log('Post created:', data);
+          // Real-time onChange demos
+          window.watchPosts = () => {
+            console.log('👀 Watching posts for changes...');
+            const posts = client.collection('posts');
+            const unsubscribe = posts.onChange((change) => {
+              console.log('🔥 Post change detected:', change);
+              alert('⚡ Real-time: Post ' + change.type + '! Title: ' + (change.data?.title || change.data?.id));
             });
             
-            client.on('kv:set', (data) => {
-              alert('⚡ Real-time: Data updated!');
-              console.log('Data updated:', data);
-            });
-            
-            alert('✅ Real-time updates enabled! Try creating a post or updating data.');
+            window.unwatchPosts = unsubscribe;
+            alert('✅ Now watching posts! Try creating a post.');
           };
           
+          window.watchData = () => {
+            console.log('👀 Watching data key for changes...');
+            const unsubscribe = client.onChange('data', (change) => {
+              console.log('🔥 Data change detected:', change);
+              alert('⚡ Real-time: Data updated! New value: ' + change.value);
+            });
+            
+            window.unwatchData = unsubscribe;
+            alert('✅ Now watching data key! Try updating data.');
+          };
+
           // Debug function
           window.debugUserDO = () => {
             console.log('🔍 UserDO Client Debug Info:');
             console.log('- Client instance:', client);
             console.log('- Current user:', client.user);
+            console.log('- WebSocket:', client.ws);
+            console.log('- Change listeners:', client.changeListeners);
           };
-          
-          console.log('💡 Available functions:');
-          console.log('- window.connectRealtime(): Enable real-time updates');
-          console.log('- window.debugUserDO(): Show debug info');
           `
         }}></script>
       </head>
@@ -310,8 +314,6 @@ userDOWorker.get('/', async (c) => {
         <a href="https://www.npmjs.com/package/userdo">NPM</a>
         &nbsp;•&nbsp;
         <a href="https://x.com/acoyfellow.com">@acoyfellow</a>
-
-        <hr />
 
         <div id="auth-status" style="padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; background: #f8f9fa;">
           Checking auth status...
@@ -354,19 +356,23 @@ userDOWorker.get('/', async (c) => {
           </form>
           <a href="/protected/profile">View Profile (protected)</a><br /><br />
 
-          {/* Real-time Synchronization Demo */}
+          {/* Real-time onChange Demo */}
           <fieldset>
-            <legend><h2>⚡ Real-time Updates</h2></legend>
+            <legend><h2>⚡ Real-time onChange</h2></legend>
             <div class="feature-highlight">
-              <p><strong>See your data changes in real-time!</strong></p>
-              <p>Connect to real-time events to get instant notifications when your data changes.</p>
+              <p><strong>True real-time with WebSockets!</strong></p>
+              <p>Watch for changes to posts or data and get instant notifications.</p>
             </div>
 
-            <button type="button" onclick="connectRealtime()" style="background: #28a745; color: white; border: none; padding: 10px 15px; border-radius: 5px; margin-right: 10px;">
-              Enable Real-time Updates
+            <button type="button" onclick="watchPosts()" style="background: #28a745; color: white; border: none; padding: 10px 15px; border-radius: 5px; margin-right: 10px;">
+              Watch Posts
             </button>
 
-            <p><em>Once enabled, you'll see alerts when you create posts or update data!</em></p>
+            <button type="button" onclick="watchData()" style="background: #17a2b8; color: white; border: none; padding: 10px 15px; border-radius: 5px; margin-right: 10px;">
+              Watch Data
+            </button>
+
+            <p><em>Once enabled, you'll get real-time alerts when data changes!</em></p>
           </fieldset>
 
           <details>
@@ -387,7 +393,7 @@ userDOWorker.get('/', async (c) => {
               <button type="button" onclick="setDataClient(document.getElementById('data-key').value, document.getElementById('data-value').value)">
                 Set Data (Client)
               </button>
-              <hr />
+
               {data && (
                 <details>
                   <summary>Stored Data</summary>

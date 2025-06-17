@@ -13,7 +13,7 @@ export class UserDODatabase {
   constructor(
     private storage: DurableObjectStorage,
     private currentUserId: string,
-    private broadcast: (event: string, data: any) => void
+    private broadcast?: (event: string, data: any) => void
   ) { }
 
   table<T extends z.ZodSchema>(
