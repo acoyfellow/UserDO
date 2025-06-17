@@ -3,4 +3,5 @@ node_modules
 .env
 dist
 .DS_Store
-.alchemy
+.alchemy.dev.vars
+.dev.vars

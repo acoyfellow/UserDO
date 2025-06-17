@@ -13,10 +13,10 @@ A Durable Object base class that provides user authentication, per-user data sto
 
 ## Core components
 
-**UserDO class**: Extend this to add your application logic
-**Worker**: Pre-built Hono server with authentication endpoints
-**Client**: Browser library for API calls and real-time subscriptions
-**Database**: Type-safe tables with query builder
+- **UserDO class**: Extend this to add your application logic
+- **Worker**: Pre-built Hono server with authentication endpoints
+- **Client**: Browser library for API calls and real-time subscriptions
+- **Database**: Type-safe tables with query builder
 
 ## Basic usage
 
@@ -235,6 +235,7 @@ See the `examples/` directory for complete implementations:
 - SQLite storage is per-Durable Object instance
 - Real-time events use polling, not WebSockets
 - No built-in user management interface
+- Must use Cloudflare (Durable Objects, KV, etc.), not self-hosted
 
 
 TODO:
