@@ -67,7 +67,7 @@
     "deploy": "wrangler deploy",
     "dev": "npm run build && wrangler dev",
     "start": "wrangler dev",
-    "build": "tsc",
+    "build": "tsc && bun build src/client.ts --outfile=dist/src/client.bundle.js --format=esm --minify",
     "prepublishOnly": "npm run build",
     "release:patch": "npm version patch && npm publish",
     "release:minor": "npm version minor && npm publish",

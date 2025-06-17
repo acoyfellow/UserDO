@@ -183,7 +183,7 @@ userDOWorker.get('/', async (c) => {
           }
         `
         }}></script>
-        <script type="module" src="https://unpkg.com/userdo@latest/dist/src/client.js"></script>
+        <script type="module" src="https://unpkg.com/userdo@latest/dist/src/client.bundle.js"></script>
         <script type="module" dangerouslySetInnerHTML={{
           __html: `
           import { UserDOClient } from 'https://unpkg.com/userdo@latest/dist/src/client.js';
