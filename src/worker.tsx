@@ -21,16 +21,12 @@ type User = {
 
 const isRequestSecure = (c: Context) => new URL(c.req.url).protocol === 'https:';
 
-const getInternalUserDO = (c: Context, email: string) => {
-  const userDOID = c.env.USERDO.idFromName(email);
-  return c.env.USERDO.get(userDOID) as unknown as UserDO;
-}
-
 const app = new Hono<{ Bindings: Env, Variables: { user: User } }>()
 
 // --- AUTH MIDDLEWARE (must run before API routes) ---
 app.use('/*', async (c, next) => {
   try {
+    console.log('(WORKER)Auth middleware - URL:', c.req.url);
     const token = getCookie(c, 'token') || '';
     const refreshToken = getCookie(c, 'refreshToken') || '';
 
@@ -50,7 +46,7 @@ app.use('/*', async (c, next) => {
     let email = accessPayload?.email?.toLowerCase() || refreshPayload?.email?.toLowerCase();
 
     if (email) {
-      const userDO = getUserDO(c, email);
+      const userDO = getUserDOFromContext(c, email);
       const result = await userDO.verifyToken({ token: token });
       if (!result.ok) {
         const refreshResult = await userDO.refreshToken({ refreshToken });
@@ -83,7 +79,7 @@ app.post('/api/signup', async (c): Promise<Response> => {
     const body = await c.req.json();
     const { email, password } = SignupRequestSchema.parse(body);
 
-    const userDO = getUserDO(c, email.toLowerCase());
+    const userDO = getUserDOFromContext(c, email.toLowerCase());
     const { user, token, refreshToken } = await userDO.signup({ email: email.toLowerCase(), password });
 
     setCookie(c, 'token', token, {
@@ -112,7 +108,7 @@ app.post('/api/login', async (c): Promise<Response> => {
     const body = await c.req.json();
     const { email, password } = LoginRequestSchema.parse(body);
 
-    const userDO = getUserDO(c, email.toLowerCase());
+    const userDO = getUserDOFromContext(c, email.toLowerCase());
     const { user, token, refreshToken } = await userDO.login({ email: email.toLowerCase(), password });
 
     setCookie(c, 'token', token, {
@@ -144,7 +140,7 @@ app.post('/api/logout', async (c): Promise<Response> => {
       const payload = JSON.parse(atob(tokenParts[1]));
       const email = payload.email?.toLowerCase();
       if (email) {
-        const userDO = getUserDO(c, email);
+        const userDO = getUserDOFromContext(c, email);
         await userDO.logout();
       }
     }
@@ -164,7 +160,7 @@ app.post('/api/password-reset/request', async (c): Promise<Response> => {
     const body = await c.req.json();
     const { email } = PasswordResetRequestSchema.parse(body);
 
-    const userDO = getUserDO(c, email.toLowerCase());
+    const userDO = getUserDOFromContext(c, email.toLowerCase());
     const { resetToken } = await userDO.generatePasswordResetToken();
 
     // In production, you'd send this token via email
@@ -192,7 +188,7 @@ app.post('/api/password-reset/confirm', async (c): Promise<Response> => {
     const email = payload.email?.toLowerCase();
     if (!email) throw new Error('Invalid token');
 
-    const userDO = getUserDO(c, email);
+    const userDO = getUserDOFromContext(c, email);
     await userDO.resetPasswordWithToken({ resetToken, newPassword });
 
     return c.json({ ok: true, message: "Password reset successful" });
@@ -219,7 +215,7 @@ app.get('/api/events', async (c): Promise<Response> => {
     return c.json(errorResponse, 401);
   }
 
-  const userDO = getUserDO(c, user.email);
+  const userDO = getUserDOFromContext(c, user.email);
   const since = parseInt(c.req.query('since') || '0');
   const events = await userDO.getEvents(since);
 
@@ -234,7 +230,7 @@ app.post('/signup', async (c) => {
   if (!email || !password) {
     return c.json({ error: "Missing fields" }, 400)
   }
-  const userDO = getUserDO(c, email);
+  const userDO = getUserDOFromContext(c, email);
   try {
     const { user, token, refreshToken } = await userDO.signup({ email, password })
     setCookie(c, 'token', token, {
@@ -262,7 +258,7 @@ app.post('/login', async (c) => {
   if (!email || !password) {
     return c.json({ error: "Missing fields" }, 400)
   }
-  const userDO = getUserDO(c, email);
+  const userDO = getUserDOFromContext(c, email);
   try {
     const { user, token, refreshToken } = await userDO.login({ email, password })
     setCookie(c, 'token', token, {
@@ -292,7 +288,7 @@ app.post('/logout', async (c) => {
       const payload = JSON.parse(atob(tokenParts[1]));
       const email = payload.email?.toLowerCase();
       if (email) {
-        const userDO = getUserDO(c, email);
+        const userDO = getUserDOFromContext(c, email);
         await userDO.logout();
       }
     }
@@ -311,7 +307,7 @@ app.get("/data", async (c): Promise<Response> => {
     const errorResponse: ErrorResponse = { error: 'Unauthorized' };
     return c.json(errorResponse, 401);
   }
-  const userDO = getUserDO(c, user.email);
+  const userDO = getUserDOFromContext(c, user.email);
   const result = await userDO.get('data');
   const response: DataResponse = { ok: true, data: result };
   return c.json(response);
@@ -332,7 +328,7 @@ app.post("/data", async (c): Promise<Response> => {
     // Validate the data
     const { key: validKey, value: validValue } = SetDataRequestSchema.parse({ key, value });
 
-    const userDO = getUserDO(c, user.email);
+    const userDO = getUserDOFromContext(c, user.email);
     const result = await userDO.set(validKey, validValue);
     if (!result.ok) {
       const errorResponse: ErrorResponse = { error: 'Failed to set data' };
@@ -374,7 +370,7 @@ app.get('/api/docs', async (c) => {
 });
 
 // Export utilities for extending the worker
-export function getUserDO(c: Context, email: string, namespace?: string): UserDO {
+export function getUserDOFromContext(c: Context, email: string, namespace?: string): UserDO {
   // For now, ignore the namespace parameter and use the default USERDO
   // In the future, this could support multiple DO namespaces
   const userDOID = c.env.USERDO.idFromName(email);

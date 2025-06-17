@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { GenericQuery } from './query';
 
+// Type alias for better DX
+export type Table<T = any> = GenericTable<T>;
+
 export class GenericTable<T = any> {
   constructor(
     private tableName: string,

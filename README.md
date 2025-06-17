@@ -21,7 +21,7 @@ A Durable Object base class that provides user authentication, per-user data sto
 ## Basic usage
 
 ```ts
-import { UserDO } from "userdo";
+import { UserDO, type Env, type Table } from "userdo";
 import { z } from "zod";
 
 const PostSchema = z.object({
@@ -30,8 +30,15 @@ const PostSchema = z.object({
   createdAt: z.string(),
 });
 
+type Post = z.infer<typeof PostSchema>;
+
 export class MyAppDO extends UserDO {
-  posts = this.table('posts', PostSchema, { userScoped: true });
+  posts: Table<Post>;
+
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env);
+    this.posts = this.table('posts', PostSchema, { userScoped: true });
+  }
 
   async createPost(title: string, content: string) {
     return await this.posts.create({
@@ -51,18 +58,18 @@ export class MyAppDO extends UserDO {
 
 ```ts
 // Use as-is
-import { userDOWorker } from 'userdo/worker';
+import { userDOWorker } from 'userdo';
 export default userDOWorker;
 
 // Or extend with your routes
-import { userDOWorker, getUserDO } from 'userdo/worker';
+import { userDOWorker, getUserDOFromContext } from 'userdo';
 
 userDOWorker.post('/api/posts', async (c) => {
   const user = c.get('user');
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
   
   const { title, content } = await c.req.json();
-  const myAppDO = getUserDO(c, user.email) as MyAppDO;
+  const myAppDO = getUserDOFromContext(c, user.email) as MyAppDO;
   const post = await myAppDO.createPost(title, content);
   
   return c.json({ post });
@@ -93,7 +100,7 @@ All endpoints include request/response validation with Zod schemas.
 ## Browser client
 
 ```ts
-import { UserDOClient } from 'userdo/client';
+import { UserDOClient } from 'userdo';
 
 const client = new UserDOClient('/api');
 
@@ -165,19 +172,20 @@ await userDO.logout();
 ## Database operations
 
 ```ts
-// Create table
-const posts = this.table('posts', PostSchema, { userScoped: true });
-
-// CRUD operations
-await posts.create(data);
-await posts.findById(id);
-await posts.update(id, updates);
-await posts.delete(id);
+// All operations are fully typed with your schema
+await this.posts.create({ 
+  title: 'Hello', 
+  content: 'World', 
+  createdAt: new Date().toISOString() 
+});
+await this.posts.findById(id);
+await this.posts.update(id, { title: 'Updated' });
+await this.posts.delete(id);
 
 // Queries
-await posts.where('status', '==', 'published').get();
-await posts.orderBy('createdAt', 'desc').limit(10).get();
-await posts.count();
+await this.posts.where('title', '==', 'Hello').get();
+await this.posts.orderBy('createdAt', 'desc').limit(10).get();
+await this.posts.count();
 ```
 
 ## Key-value storage
@@ -209,7 +217,7 @@ client.connectRealtime();
 All endpoints are fully typed with TypeScript and validated with Zod schemas.
 
 ```ts
-import type { UserDOEndpoints, EndpointRequest, EndpointResponse } from 'userdo/worker';
+import type { UserDOEndpoints, EndpointRequest, EndpointResponse } from 'userdo';
 
 type SignupRequest = EndpointRequest<'POST /api/signup'>;
 type SignupResponse = EndpointResponse<'POST /api/signup'>;
