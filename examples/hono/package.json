@@ -3,20 +3,22 @@
   "version": "1.0.0",
   "description": "Example showing how to extend UserDO with Hono",
   "main": "index.tsx",
+  "private": true,
+  "workspaces": [],
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --config ./wrangler.jsonc",
     "deploy": "wrangler deploy",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "hono": "^4.0.0",
-    "userdo": "file:../../",
-    "zod": "^3.25.32"
+    "hono": "^4.7.11",
+    "userdo": "link:../..",
+    "zod": "^3.25.64"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20240208.0",
-    "typescript": "^5.0.0",
-    "wrangler": "^3.0.0"
+    "@cloudflare/workers-types": "^4.20250614.0",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.20.0"
   },
   "keywords": [
     "userdo",

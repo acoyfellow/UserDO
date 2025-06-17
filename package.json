@@ -24,6 +24,10 @@
     "./client": {
       "import": "./dist/src/client.js",
       "require": "./dist/src/client.js"
+    },
+    "./worker": {
+      "import": "./dist/src/worker.js",
+      "require": "./dist/src/worker.js"
     }
   },
   "bugs": {

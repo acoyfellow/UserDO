@@ -1,52 +1,187 @@
-# UserDO + Hono Example
+# UserDO Hono Example
 
-This example demonstrates how to **extend UserDO** with your own business logic instead of using it as a separate binding.
+This example shows how to extend UserDO with custom business logic using the modern approach.
 
-## Key Concepts
+## Key Features
 
-### Before (Separate Binding - More Complex)
+- **Extends the base worker**: Uses `userDOWorker` as the foundation
+- **Custom Durable Object**: Extends `UserDO` with business-specific methods
+- **Type-safe tables**: Uses Zod schemas for data validation
+- **Real-time events**: Automatic broadcasting of table operations
+- **Modern UI**: Clean, responsive interface
+
+## How it works
+
+### 1. Define your schemas
+
 ```ts
-// ❌ Old way: separate bindings
-const userDO = env.USERDO.get(env.USERDO.idFromName(email));
-await userDO.signup({ email, password });
-
-// Your app logic would need a separate DO
-const appDO = env.APP_DO.get(env.APP_DO.idFromName(email));
-```
-
-### After (Extension - Simpler!)
-```ts
-// ✅ New way: extend UserDO
-import { z } from 'zod';
-
 const PostSchema = z.object({
   title: z.string(),
   content: z.string(),
   createdAt: z.string(),
 });
 
+const PreferencesSchema = z.object({
+  theme: z.enum(['light', 'dark']),
+  language: z.enum(['en', 'es', 'fr']),
+});
+```
+
+### 2. Extend UserDO
+
+```ts
 export class MyAppDO extends UserDO {
   posts = this.table('posts', PostSchema, { userScoped: true });
 
   async createPost(title: string, content: string) {
-    await this.posts.create({ title, content, createdAt: new Date().toISOString() });
+    return await this.posts.create({
+      title,
+      content,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  async getPosts() {
+    return await this.posts.orderBy('createdAt', 'desc').get();
+  }
+
+  async updateUserPreferences(preferences: z.infer<typeof PreferencesSchema>) {
+    await this.set('preferences', preferences);
+    return { ok: true };
   }
 }
-
-// One binding, all functionality
-const myAppDO = env.MY_APP_DO.get(env.MY_APP_DO.idFromName(email));
-await myAppDO.signup({ email, password }); // Inherited auth
-await myAppDO.createPost(title, content);   // Your custom logic
 ```
 
-## What This Example Shows
+### 3. Use the base worker and add custom endpoints
 
-- **Authentication**: Login, signup, logout (clears refresh tokens), token refresh (inherited from UserDO)
-- **Data Storage**: Generic key-value store and queryable tables via `this.table()`
-- **Custom Business Logic**: 
-  - Posts management (create, list)
-  - User preferences (theme, language)
-- **Full Web App**: Complete HTML interface with forms and styling
+```ts
+import { userDOWorker, getUserDO } from 'userdo/worker'
+
+// Start with the base worker (includes all auth endpoints)
+const app = userDOWorker;
+
+// Helper to get your extended DO
+const getMyAppDO = (c: any, email: string) => {
+  return getUserDO(c, email) as MyAppDO;
+}
+
+// Add your custom endpoints
+app.post('/api/posts', async (c) => {
+  const user = c.get('user');
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  
+  const { title, content } = await c.req.json();
+  const myAppDO = getMyAppDO(c, user.email);
+  const post = await myAppDO.createPost(title, content);
+  
+  return c.json({ ok: true, post });
+});
+```
+
+## What you get
+
+### Built-in endpoints (from userDOWorker)
+- `POST /api/signup` - Create user account
+- `POST /api/login` - Authenticate user  
+- `POST /api/logout` - End user session
+- `GET /api/me` - Get current user info
+- `POST /api/password-reset/request` - Generate reset token
+- `POST /api/password-reset/confirm` - Reset password with token
+- `GET /data` - Get user's key-value data
+- `POST /data` - Set user's key-value data
+- `GET /api/events` - Real-time events for data changes
+
+### Custom endpoints (added by this example)
+- `GET /api/posts` - List user's posts
+- `POST /api/posts` - Create a new post
+- `PUT /api/posts/:id` - Update a post
+- `DELETE /api/posts/:id` - Delete a post
+- `GET /api/preferences` - Get user preferences
+- `POST /api/preferences` - Update user preferences
+
+## Database operations
+
+The example demonstrates both table operations and key-value storage:
+
+### Table operations (with automatic events)
+```ts
+// Create
+const post = await this.posts.create({ title, content, createdAt });
+// → Broadcasts: table:posts:create
+
+// Update  
+const updated = await this.posts.update(id, { title, content });
+// → Broadcasts: table:posts:update
+
+// Delete
+await this.posts.delete(id);
+// → Broadcasts: table:posts:delete
+
+// Query
+const posts = await this.posts.orderBy('createdAt', 'desc').get();
+```
+
+### Key-value storage (with automatic events)
+```ts
+// Set
+await this.set('preferences', { theme: 'dark', language: 'en' });
+// → Broadcasts: kv:set
+
+// Get
+const preferences = await this.get('preferences');
+```
+
+## Real-time events
+
+All data operations automatically broadcast events that can be consumed by connected clients:
+
+- `table:posts:create` - When a post is created
+- `table:posts:update` - When a post is updated  
+- `table:posts:delete` - When a post is deleted
+- `kv:set` - When key-value data is stored
+
+## Running the example
+
+```bash
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+
+# Deploy to Cloudflare
+npm run deploy
+```
+
+## Configuration
+
+Update `wrangler.jsonc` with your settings:
+
+```jsonc
+{
+  "name": "userdo-hono-example",
+  "main": "index.tsx",
+  "vars": {
+    "JWT_SECRET": "your-jwt-secret-here"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "USERDO",
+        "class_name": "MyAppDO"
+      }
+    ]
+  }
+}
+```
+
+## Architecture benefits
+
+- **Minimal boilerplate**: Start with full auth system
+- **Type safety**: Zod schemas ensure data integrity
+- **Real-time ready**: Automatic event broadcasting
+- **Scalable**: Per-user data isolation via Durable Objects
+- **Extensible**: Add your business logic without touching core auth
 
 ## Files
 
@@ -200,12 +335,8 @@ Then add routes in your Hono app to expose these methods via HTTP endpoints.
   "vars": { "JWT_SECRET": "your-jwt-secret-here" }
   ```
 - **For production:**  
-  1. Remove/comment out the `JWT_SECRET` line from `wrangler.jsonc`.
-  2. Run:
-     ```sh
-     wrangler secret put JWT_SECRET
-     ```
-  3. Deploy.
+  1. Remove the var and use `wrangler secret put JWT_SECRET`
+  2. Deploy.
 
 > **Note:**  
 > You can't have both a var and a secret with the same name at once.

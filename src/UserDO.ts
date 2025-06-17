@@ -309,6 +309,39 @@ export class UserDO extends DurableObject {
     return { ok: true };
   }
 
+  // Generate password reset token (expires in 1 hour)
+  async generatePasswordResetToken(): Promise<{ resetToken: string }> {
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
+    if (!user) throw new Error('User not found');
+
+    const resetExp = Math.floor(Date.now() / 1000) + 60 * 60; // 1 hour
+    const resetToken = await jwt.sign({
+      sub: user.id,
+      email: user.email,
+      type: 'password_reset',
+      exp: resetExp
+    }, this.env.JWT_SECRET);
+
+    return { resetToken };
+  }
+
+  // Reset password with token verification
+  async resetPasswordWithToken(
+    { resetToken, newPassword }: { resetToken: string; newPassword: string }
+  ): Promise<{ ok: boolean }> {
+    try {
+      const verify = await jwt.verify(resetToken, this.env.JWT_SECRET) as JwtData<JwtPayload & { type: string }, {}>;
+      if (!verify || !verify.payload || verify.payload.type !== 'password_reset') {
+        throw new Error('Invalid reset token');
+      }
+
+      // Token is valid, proceed with password reset
+      return await this.resetPassword({ newPassword });
+    } catch (err) {
+      throw new Error('Invalid or expired reset token');
+    }
+  }
+
   async verifyToken(
     { token }: { token: string }
   ): Promise<{
@@ -341,6 +374,10 @@ export class UserDO extends DurableObject {
   ): Promise<{ ok: boolean }> {
     if (isReservedKey(key)) throw new Error("Key is reserved");
     await this.storage.put(key, value);
+
+    // Broadcast KV storage event
+    this.broadcast(`kv:set`, { key, value });
+
     return { ok: true };
   }
 
@@ -426,8 +463,39 @@ export class UserDO extends DurableObject {
     return this.state.id.toString();
   }
 
-  protected broadcast(_event: string, _data: any): void {
-    // Placeholder for realtime functionality
+  protected broadcast(event: string, data: any): void {
+    // Store event for SSE streaming
+    const eventData = { event, data, timestamp: Date.now() };
+    this.storage.put(`__event_${Date.now()}_${Math.random()}`, eventData);
+  }
+
+  async getEvents(since?: number): Promise<Array<{ event: string; data: any; timestamp: number }>> {
+    const events: Array<{ event: string; data: any; timestamp: number }> = [];
+    const allKeys = await this.storage.list({ prefix: '__event_' });
+    const now = Date.now();
+    const oneHourAgo = now - (60 * 60 * 1000); // 1 hour ago
+    const keysToDelete: string[] = [];
+
+    for (const [key, value] of allKeys) {
+      const eventData = value as { event: string; data: any; timestamp: number };
+
+      // Clean up events older than 1 hour
+      if (eventData.timestamp < oneHourAgo) {
+        keysToDelete.push(key);
+        continue;
+      }
+
+      if (!since || eventData.timestamp > since) {
+        events.push(eventData);
+      }
+    }
+
+    // Clean up old events
+    if (keysToDelete.length > 0) {
+      await Promise.all(keysToDelete.map(key => this.storage.delete(key)));
+    }
+
+    return events.sort((a, b) => a.timestamp - b.timestamp);
   }
 }
 
