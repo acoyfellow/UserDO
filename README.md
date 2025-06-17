@@ -245,9 +245,10 @@ type SignupResponse = EndpointResponse<'POST /api/signup'>;
 ## Examples
 
 See the `examples/` directory for complete implementations:
-- `examples/hono` - Full Hono integration
-- `examples/alchemy` - Alchemy.run deployment
-- `examples/effect` - Effect library integration
+- [`examples/hono`](examples/hono) - Full Hono integration
+- [`examples/alchemy`](examples/alchemy) - Alchemy.run deployment
+- [`examples/effect`](examples/effect) - Effect library integration
+- [`examples/multi-tenant`](examples/multi-tenant) - Multi-tenant SaaS pattern
 
 ## Security features
 

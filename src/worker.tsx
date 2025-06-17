@@ -23,54 +23,69 @@ const isRequestSecure = (c: Context) => new URL(c.req.url).protocol === 'https:'
 
 const app = new Hono<{ Bindings: Env, Variables: { user: User } }>()
 
-// --- AUTH MIDDLEWARE (must run before API routes) ---
+// --- CLEAN AUTH MIDDLEWARE ---
 app.use('/*', async (c, next) => {
-  try {
-    console.log('(WORKER)Auth middleware - URL:', c.req.url);
-    const token = getCookie(c, 'token') || '';
-    const refreshToken = getCookie(c, 'refreshToken') || '';
+  const url = new URL(c.req.url);
+  const token = getCookie(c, 'token') || '';
+  const refreshToken = getCookie(c, 'refreshToken') || '';
 
-    // Helper function to safely decode JWT payload
-    const decodeJWTPayload = (jwt: string) => {
-      try {
-        const parts = jwt.split('.');
-        if (parts.length !== 3 || !parts[1]) return null;
-        return JSON.parse(atob(parts[1]));
-      } catch {
-        return null;
-      }
-    };
+  console.log(`🔐 Auth check for ${url.pathname}:`, {
+    hasToken: !!token,
+    hasRefreshToken: !!refreshToken
+  });
 
-    const accessPayload = decodeJWTPayload(token);
-    const refreshPayload = decodeJWTPayload(refreshToken);
-    let email = accessPayload?.email?.toLowerCase() || refreshPayload?.email?.toLowerCase();
+  if (token || refreshToken) {
+    try {
+      // Helper to decode JWT payload safely
+      const decodeJWT = (jwt: string) => {
+        try {
+          const parts = jwt.split('.');
+          return parts.length === 3 ? JSON.parse(atob(parts[1])) : null;
+        } catch { return null; }
+      };
 
-    if (email) {
-      const userDO = getUserDOFromContext(c, email);
-      const result = await userDO.verifyToken({ token: token });
-      if (!result.ok) {
-        const refreshResult = await userDO.refreshToken({ refreshToken });
-        if (!refreshResult.token) return c.json({ error: 'Unauthorized' }, 401);
-        setCookie(c, 'token', refreshResult.token, {
-          httpOnly: true,
-          secure: isRequestSecure(c),
-          path: '/',
-          sameSite: 'Lax'
-        });
-        // Verify the new token and set user
-        const newResult = await userDO.verifyToken({ token: refreshResult.token });
-        if (newResult.ok && newResult.user) {
-          c.set('user', newResult.user);
+      const email = decodeJWT(token)?.email?.toLowerCase() || decodeJWT(refreshToken)?.email?.toLowerCase();
+
+      if (email) {
+        const userDO = getUserDOFromContext(c, email);
+
+        // Try access token first
+        let result = await userDO.verifyToken({ token });
+        console.log(`🔑 Token verification for ${email}:`, { success: result.ok });
+
+        // If access token invalid, try refresh
+        if (!result.ok && refreshToken) {
+          try {
+            console.log('🔄 Attempting token refresh...');
+            const { token: newToken } = await userDO.refreshToken({ refreshToken });
+            setCookie(c, 'token', newToken, {
+              httpOnly: true,
+              secure: isRequestSecure(c),
+              path: '/',
+              sameSite: 'Lax'
+            });
+            result = await userDO.verifyToken({ token: newToken });
+            console.log('✅ Token refreshed successfully');
+          } catch (e) {
+            console.log('❌ Token refresh failed:', e);
+            // Clear invalid tokens
+            deleteCookie(c, 'token');
+            deleteCookie(c, 'refreshToken');
+          }
         }
-      } else if (result.ok && result.user) {
-        c.set('user', result.user);
+
+        // Set user if authenticated
+        if (result.ok && result.user) {
+          console.log(`👤 User set: ${result.user.email}`);
+          c.set('user', result.user);
+        }
       }
+    } catch (e) {
+      console.error('Auth error:', e);
     }
-    await next();
-  } catch (e) {
-    console.error(e);
-    await next();
-  };
+  }
+
+  await next();
 });
 
 // --- JSON AUTH ENDPOINTS (for client) ---
@@ -206,6 +221,8 @@ app.get('/api/me', async (c): Promise<Response> => {
   }
   return c.json({ user });
 });
+
+
 
 // Events API for real-time updates (polling-based)
 app.get('/api/events', async (c): Promise<Response> => {
@@ -385,75 +402,69 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
   // Helper function that uses the specified binding name
   const getUserDO = (c: Context, email: string) => getUserDOFromContext(c, email, bindingName);
 
-  // Auth middleware
+  // Auth middleware - same clean version as main worker
   app.use('*', async (c, next) => {
     const url = new URL(c.req.url);
+    const token = getCookie(c, 'token') || '';
+    const refreshToken = getCookie(c, 'refreshToken') || '';
 
-    // Skip auth for public endpoints
-    if (url.pathname === '/' ||
-      url.pathname === '/signup' ||
-      url.pathname === '/login' ||
-      url.pathname.startsWith('/api/docs') ||
-      url.pathname.startsWith('/.well-known/')) {
-      return next();
-    }
+    console.log(`🔐 [createUserDOWorker] Auth check for ${url.pathname}:`, {
+      hasToken: !!token,
+      hasRefreshToken: !!refreshToken
+    });
 
-    const token = getCookie(c, 'token') || c.req.header('Authorization')?.replace('Bearer ', '');
+    if (token || refreshToken) {
+      try {
+        // Helper to decode JWT payload safely
+        const decodeJWT = (jwt: string) => {
+          try {
+            const parts = jwt.split('.');
+            return parts.length === 3 ? JSON.parse(atob(parts[1])) : null;
+          } catch { return null; }
+        };
 
-    if (!token) {
-      if (url.pathname.startsWith('/api/')) {
-        return c.json({ error: 'Unauthorized' }, 401);
-      }
-      return next();
-    }
+        const email = decodeJWT(token)?.email?.toLowerCase() || decodeJWT(refreshToken)?.email?.toLowerCase();
 
-    try {
-      const decodeJWTPayload = (jwt: string) => {
-        const parts = jwt.split('.');
-        if (parts.length !== 3) return null;
-        try {
-          return JSON.parse(atob(parts[1]));
-        } catch {
-          return null;
+        if (email) {
+          const userDO = getUserDO(c, email);
+
+          // Try access token first
+          let result = await userDO.verifyToken({ token });
+          console.log(`🔑 [createUserDOWorker] Token verification for ${email}:`, { success: result.ok });
+
+          // If access token invalid, try refresh
+          if (!result.ok && refreshToken) {
+            try {
+              console.log('🔄 [createUserDOWorker] Attempting token refresh...');
+              const { token: newToken } = await userDO.refreshToken({ refreshToken });
+              setCookie(c, 'token', newToken, {
+                httpOnly: true,
+                secure: isRequestSecure(c),
+                path: '/',
+                sameSite: 'Strict'
+              });
+              result = await userDO.verifyToken({ token: newToken });
+              console.log('✅ [createUserDOWorker] Token refreshed successfully');
+            } catch (e) {
+              console.log('❌ [createUserDOWorker] Token refresh failed:', e);
+              // Clear invalid tokens
+              deleteCookie(c, 'token');
+              deleteCookie(c, 'refreshToken');
+            }
+          }
+
+          // Set user if authenticated
+          if (result.ok && result.user) {
+            console.log(`👤 [createUserDOWorker] User set: ${result.user.email}`);
+            c.set('user', result.user);
+          }
         }
-      };
-
-      const payload = decodeJWTPayload(token);
-      if (!payload?.email) throw new Error('Invalid token');
-
-      const email = payload.email.toLowerCase();
-      const userDO = getUserDO(c, email);
-      const result = await userDO.verifyToken({ token });
-
-      if (!result.ok) {
-        const refreshToken = getCookie(c, 'refreshToken');
-        if (!refreshToken) throw new Error('No refresh token');
-
-        const refreshResult = await userDO.refreshToken({ refreshToken });
-        if (!refreshResult.token) throw new Error('Refresh failed');
-
-        setCookie(c, 'token', refreshResult.token, {
-          httpOnly: true,
-          secure: isRequestSecure(c),
-          path: '/',
-          sameSite: 'Strict'
-        });
-
-        const newResult = await userDO.verifyToken({ token: refreshResult.token });
-        if (!newResult.ok || !newResult.user) throw new Error('Token verification failed');
-
-        c.set('user', newResult.user);
-      } else if (result.user) {
-        c.set('user', result.user);
-      }
-    } catch (e) {
-      console.error('Auth middleware error:', e);
-      if (url.pathname.startsWith('/api/')) {
-        return c.json({ error: 'Unauthorized' }, 401);
+      } catch (e) {
+        console.error('[createUserDOWorker] Auth error:', e);
       }
     }
 
-    return next();
+    await next();
   });
 
   // Copy all the routes from the main app but use the custom getUserDO function
@@ -573,6 +584,8 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
     }
     return c.json({ user });
   });
+
+
 
   app.get('/api/events', async (c): Promise<Response> => {
     const user = c.get('user');

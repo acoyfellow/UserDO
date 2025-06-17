@@ -24,7 +24,7 @@ class UserDOClient {
 
   private async checkAuthStatus() {
     try {
-      // Just make a request to check if we're authenticated via cookies
+      // Check if we're authenticated via cookies (same mechanism as server)
       const res = await fetch(`${this.baseUrl}/me`, {
         credentials: 'include' // Ensure cookies are sent
       });

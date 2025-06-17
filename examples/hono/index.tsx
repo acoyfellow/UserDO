@@ -256,12 +256,7 @@ userDOWorker.get('/', async (c) => {
             console.log('🔍 UserDO Client Debug Info:');
             console.log('- Client instance:', client);
             console.log('- Current user:', client.user);
-            console.log('- Has token:', !!client.token);
-            console.log('- Has refresh token:', !!client.refreshToken);
-            console.log('- LocalStorage tokens:', {
-              token: localStorage.getItem('userdo_token'),
-              refreshToken: localStorage.getItem('userdo_refresh_token')
-            });
+            console.log('- Auth uses cookies only (no localStorage)');
           };
           
           console.log('💡 Available debug functions:');
@@ -276,18 +271,17 @@ userDOWorker.get('/', async (c) => {
       </head>
       <body>
         <h1>UserDO Demo</h1>
-
-        <div id="auth-status" style="padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; background: #f8f9fa;">
-          Checking auth status...
-        </div>
-
-        <p>View extended demo <a href="https://userdo-hono-example.coey.dev">here</a></p>
-
         <a href="https://github.com/acoyfellow/userdo">GitHub</a>
         &nbsp;•&nbsp;
         <a href="https://www.npmjs.com/package/userdo">NPM</a>
         &nbsp;•&nbsp;
         <a href="https://x.com/acoyfellow.com">@acoyfellow</a>
+
+        <hr />
+
+        <div id="auth-status" style="padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; background: #f8f9fa;">
+          Checking auth status...
+        </div>
 
         {!user && <section>
           <form method="post" action="/signup">
