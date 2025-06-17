@@ -33,34 +33,41 @@ export class GenericQuery<T> {
     return this;
   }
 
+  private conditionToSQL(
+    condition: { path: string; operator: string; value: any },
+    params: any[]
+  ): string {
+    const jsonPath = `$.${condition.path}`;
+    switch (condition.operator) {
+      case '==':
+        params.push(condition.value);
+        return `json_extract(data, '${jsonPath}') = ?`;
+      case '!=':
+        params.push(condition.value);
+        return `json_extract(data, '${jsonPath}') != ?`;
+      case '>':
+        params.push(condition.value);
+        return `json_extract(data, '${jsonPath}') > ?`;
+      case '<':
+        params.push(condition.value);
+        return `json_extract(data, '${jsonPath}') < ?`;
+      case 'includes':
+        params.push(`%${condition.value}%`);
+        return `json_extract(data, '${jsonPath}') LIKE ?`;
+      default:
+        throw new Error(`Unsupported operator: ${condition.operator}`);
+    }
+  }
+
   async get(): Promise<Array<T & { id: string; createdAt: Date; updatedAt: Date }>> {
     let sql = `SELECT * FROM "${this.tableName}" WHERE user_id = ?`;
     const params: any[] = [this.userId];
 
     // Add WHERE conditions
     if (this.conditions.length > 0) {
-      const whereConditions = this.conditions.map((c) => {
-        const jsonPath = `$.${c.path}`;
-        switch (c.operator) {
-          case '==':
-            params.push(c.value);
-            return `json_extract(data, '${jsonPath}') = ?`;
-          case '!=':
-            params.push(c.value);
-            return `json_extract(data, '${jsonPath}') != ?`;
-          case '>':
-            params.push(c.value);
-            return `json_extract(data, '${jsonPath}') > ?`;
-          case '<':
-            params.push(c.value);
-            return `json_extract(data, '${jsonPath}') < ?`;
-          case 'includes':
-            params.push(`%${c.value}%`);
-            return `json_extract(data, '${jsonPath}') LIKE ?`;
-          default:
-            throw new Error(`Unsupported operator: ${c.operator}`);
-        }
-      });
+      const whereConditions = this.conditions.map((c) =>
+        this.conditionToSQL(c, params)
+      );
       sql += ` AND (${whereConditions.join(' AND ')})`;
     }
 
@@ -110,28 +117,9 @@ export class GenericQuery<T> {
     const params: any[] = [this.userId];
 
     if (this.conditions.length > 0) {
-      const whereConditions = this.conditions.map((c) => {
-        const jsonPath = `$.${c.path}`;
-        switch (c.operator) {
-          case '==':
-            params.push(c.value);
-            return `json_extract(data, '${jsonPath}') = ?`;
-          case '!=':
-            params.push(c.value);
-            return `json_extract(data, '${jsonPath}') != ?`;
-          case '>':
-            params.push(c.value);
-            return `json_extract(data, '${jsonPath}') > ?`;
-          case '<':
-            params.push(c.value);
-            return `json_extract(data, '${jsonPath}') < ?`;
-          case 'includes':
-            params.push(`%${c.value}%`);
-            return `json_extract(data, '${jsonPath}') LIKE ?`;
-          default:
-            throw new Error(`Unsupported operator: ${c.operator}`);
-        }
-      });
+      const whereConditions = this.conditions.map((c) =>
+        this.conditionToSQL(c, params)
+      );
       sql += ` AND (${whereConditions.join(' AND ')})`;
     }
 
