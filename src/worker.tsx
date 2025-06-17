@@ -21,6 +21,16 @@ type User = {
 
 const isRequestSecure = (c: Context) => new URL(c.req.url).protocol === 'https:';
 
+// Utility to decode a JWT payload safely
+export const decodeJWTPayload = (jwt: string): any | null => {
+  try {
+    const parts = jwt.split('.')
+    return parts.length === 3 ? JSON.parse(atob(parts[1])) : null
+  } catch {
+    return null
+  }
+}
+
 const app = new Hono<{ Bindings: Env, Variables: { user: User } }>()
 
 // --- CLEAN AUTH MIDDLEWARE ---
@@ -36,15 +46,7 @@ app.use('/*', async (c, next) => {
 
   if (token || refreshToken) {
     try {
-      // Helper to decode JWT payload safely
-      const decodeJWT = (jwt: string) => {
-        try {
-          const parts = jwt.split('.');
-          return parts.length === 3 ? JSON.parse(atob(parts[1])) : null;
-        } catch { return null; }
-      };
-
-      const email = decodeJWT(token)?.email?.toLowerCase() || decodeJWT(refreshToken)?.email?.toLowerCase();
+      const email = decodeJWTPayload(token)?.email?.toLowerCase() || decodeJWTPayload(refreshToken)?.email?.toLowerCase();
 
       if (email) {
         const userDO = getUserDOFromContext(c, email);
@@ -150,14 +152,10 @@ app.post('/api/login', async (c): Promise<Response> => {
 app.post('/api/logout', async (c): Promise<Response> => {
   try {
     const token = getCookie(c, 'token') || '';
-    const tokenParts = token.split('.');
-    if (tokenParts.length === 3 && tokenParts[1]) {
-      const payload = JSON.parse(atob(tokenParts[1]));
-      const email = payload.email?.toLowerCase();
-      if (email) {
-        const userDO = getUserDOFromContext(c, email);
-        await userDO.logout();
-      }
+    const email = decodeJWTPayload(token)?.email?.toLowerCase();
+    if (email) {
+      const userDO = getUserDOFromContext(c, email);
+      await userDO.logout();
     }
   } catch (e) {
     console.error('Logout error', e);
@@ -197,10 +195,7 @@ app.post('/api/password-reset/confirm', async (c): Promise<Response> => {
     const { resetToken, newPassword } = PasswordResetConfirmSchema.parse(body);
 
     // Extract email from token to get the right UserDO
-    const tokenParts = resetToken.split('.');
-    if (tokenParts.length !== 3) throw new Error('Invalid token format');
-    const payload = JSON.parse(atob(tokenParts[1]));
-    const email = payload.email?.toLowerCase();
+    const email = decodeJWTPayload(resetToken)?.email?.toLowerCase();
     if (!email) throw new Error('Invalid token');
 
     const userDO = getUserDOFromContext(c, email);
@@ -300,14 +295,10 @@ app.post('/login', async (c) => {
 app.post('/logout', async (c) => {
   try {
     const token = getCookie(c, 'token') || '';
-    const tokenParts = token.split('.');
-    if (tokenParts.length === 3 && tokenParts[1]) {
-      const payload = JSON.parse(atob(tokenParts[1]));
-      const email = payload.email?.toLowerCase();
-      if (email) {
-        const userDO = getUserDOFromContext(c, email);
-        await userDO.logout();
-      }
+    const email = decodeJWTPayload(token)?.email?.toLowerCase();
+    if (email) {
+      const userDO = getUserDOFromContext(c, email);
+      await userDO.logout();
     }
   } catch (e) {
     console.error('Logout error', e);
@@ -415,15 +406,7 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
 
     if (token || refreshToken) {
       try {
-        // Helper to decode JWT payload safely
-        const decodeJWT = (jwt: string) => {
-          try {
-            const parts = jwt.split('.');
-            return parts.length === 3 ? JSON.parse(atob(parts[1])) : null;
-          } catch { return null; }
-        };
-
-        const email = decodeJWT(token)?.email?.toLowerCase() || decodeJWT(refreshToken)?.email?.toLowerCase();
+        const email = decodeJWTPayload(token)?.email?.toLowerCase() || decodeJWTPayload(refreshToken)?.email?.toLowerCase();
 
         if (email) {
           const userDO = getUserDO(c, email);
@@ -560,10 +543,7 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
       const body = await c.req.json();
       const { resetToken, newPassword } = PasswordResetConfirmSchema.parse(body);
 
-      const tokenParts = resetToken.split('.');
-      if (tokenParts.length !== 3) throw new Error('Invalid reset token');
-      const payload = JSON.parse(atob(tokenParts[1]));
-      const email = payload.email?.toLowerCase();
+      const email = decodeJWTPayload(resetToken)?.email?.toLowerCase();
       if (!email) throw new Error('Invalid token');
 
       const userDO = getUserDO(c, email);
@@ -661,14 +641,10 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
   app.post('/logout', async (c) => {
     try {
       const token = getCookie(c, 'token') || '';
-      const tokenParts = token.split('.');
-      if (tokenParts.length === 3 && tokenParts[1]) {
-        const payload = JSON.parse(atob(tokenParts[1]));
-        const email = payload.email?.toLowerCase();
-        if (email) {
-          const userDO = getUserDO(c, email);
-          await userDO.logout();
-        }
+      const email = decodeJWTPayload(token)?.email?.toLowerCase();
+      if (email) {
+        const userDO = getUserDO(c, email);
+        await userDO.logout();
       }
     } catch (e) {
       console.error('Logout error', e);
