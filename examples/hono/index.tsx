@@ -1,6 +1,6 @@
-import { Hono, Context } from 'hono'
-import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
-import { Env, UserDO as BaseUserDO } from '../../src/UserDO'
+import { userDOWorker, getUserDO } from 'userdo/worker'
+import { UserDO as BaseUserDO } from 'userdo'
+import { Context } from 'hono'
 import { z } from 'zod'
 
 // Extend UserDO with database table functionality
@@ -12,10 +12,6 @@ const PostSchema = z.object({
 
 export class MyAppDO extends BaseUserDO {
   posts = this.table('posts', PostSchema, { userScoped: true });
-
-  constructor(state: DurableObjectState, env: Env) {
-    super(state, env);
-  }
 
   async createPost(title: string, content: string) {
     return await this.posts.create({
@@ -38,258 +34,13 @@ export class MyAppDO extends BaseUserDO {
 // Export MyAppDO as the default Durable Object
 export { MyAppDO as UserDO }
 
-type User = {
-  id: string;
-  email: string;
-}
-
-const getUserDO = (c: Context, email: string) => {
-  const userDOID = c.env.USERDO.idFromName(email);
-  return c.env.USERDO.get(userDOID) as unknown as BaseUserDO;
-}
-
 const getMyAppDO = (c: Context, email: string) => {
-  const userDOID = c.env.USERDO.idFromName(email);
-  return c.env.USERDO.get(userDOID) as unknown as MyAppDO;
+  return getUserDO(c, email) as MyAppDO;
 }
 
-const app = new Hono<{ Bindings: Env, Variables: { user: User } }>()
-
-// --- AUTH MIDDLEWARE (must run before API routes) ---
-app.use('/*', async (c, next) => {
-  try {
-    const token = getCookie(c, 'token') || '';
-    const refreshToken = getCookie(c, 'refreshToken') || '';
-
-    // Debug logging
-    console.log('Auth middleware - URL:', c.req.url);
-    console.log('Auth middleware - Token:', token ? 'present' : 'missing');
-    console.log('Auth middleware - RefreshToken:', refreshToken ? 'present' : 'missing');
-
-    // Helper function to safely decode JWT payload
-    const decodeJWTPayload = (jwt: string) => {
-      try {
-        const parts = jwt.split('.');
-        if (parts.length !== 3 || !parts[1]) return null;
-        return JSON.parse(atob(parts[1]));
-      } catch {
-        return null;
-      }
-    };
-
-    const accessPayload = decodeJWTPayload(token);
-    const refreshPayload = decodeJWTPayload(refreshToken);
-    let email = accessPayload?.email?.toLowerCase() || refreshPayload?.email?.toLowerCase();
-
-    if (email) {
-      console.log('Auth middleware - Email found:', email);
-      const userDO = getUserDO(c, email);
-      const result = await userDO.verifyToken({ token: token });
-      console.log('Auth middleware - Token verification result:', result);
-      if (!result.ok) {
-        const refreshResult = await userDO.refreshToken({ refreshToken });
-        if (!refreshResult.token) return c.json({ error: 'Unauthorized' }, 401);
-        setCookie(c, 'token', refreshResult.token, {
-          httpOnly: true,
-          secure: false, // Allow HTTP for localhost
-          path: '/',
-          sameSite: 'Lax'
-        });
-        // Verify the new token and set user
-        const newResult = await userDO.verifyToken({ token: refreshResult.token });
-        if (newResult.ok && newResult.user) {
-          c.set('user', newResult.user);
-        }
-      } else if (result.ok && result.user) {
-        c.set('user', result.user);
-      }
-    }
-    await next();
-  } catch (e) {
-    console.error(e);
-    await next();
-  };
-});
-
-// --- JSON AUTH ENDPOINTS (for client) ---
-app.post('/api/signup', async (c) => {
-  const { email, password } = await c.req.json();
-  if (!email || !password) {
-    return c.json({ error: "Missing fields" }, 400);
-  }
-  const userDO = getUserDO(c, email.toLowerCase());
-  try {
-    const { user, token, refreshToken } = await userDO.signup({ email: email.toLowerCase(), password });
-    setCookie(c, 'token', token, {
-      httpOnly: true,
-      secure: false, // Allow HTTP for localhost
-      path: '/',
-      sameSite: 'Lax'
-    });
-    setCookie(c, 'refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: false, // Allow HTTP for localhost
-      path: '/',
-      sameSite: 'Lax'
-    });
-    return c.json({ user, token, refreshToken });
-  } catch (e: any) {
-    return c.json({ error: e.message || "Signup error" }, 400);
-  }
-});
-
-app.post('/api/login', async (c) => {
-  const { email, password } = await c.req.json();
-  if (!email || !password) {
-    return c.json({ error: "Missing fields" }, 400);
-  }
-  const userDO = getUserDO(c, email.toLowerCase());
-  try {
-    const { user, token, refreshToken } = await userDO.login({ email: email.toLowerCase(), password });
-    setCookie(c, 'token', token, {
-      httpOnly: true,
-      secure: false, // Allow HTTP for localhost
-      path: '/',
-      sameSite: 'Lax'
-    });
-    setCookie(c, 'refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: false, // Allow HTTP for localhost
-      path: '/',
-      sameSite: 'Lax'
-    });
-    return c.json({ user, token, refreshToken });
-  } catch (e: any) {
-    return c.json({ error: e.message || "Login error" }, 400);
-  }
-});
-
-app.post('/api/logout', async (c) => {
-  try {
-    const token = getCookie(c, 'token') || '';
-    const tokenParts = token.split('.');
-    if (tokenParts.length === 3 && tokenParts[1]) {
-      const payload = JSON.parse(atob(tokenParts[1]));
-      const email = payload.email?.toLowerCase();
-      if (email) {
-        const userDO = getUserDO(c, email);
-        await userDO.logout();
-      }
-    }
-  } catch (e) {
-    console.error('Logout error', e);
-  }
-  deleteCookie(c, 'token');
-  deleteCookie(c, 'refreshToken');
-  return c.json({ ok: true });
-});
-
-app.get('/api/me', async (c) => {
-  const user = c.get('user');
-  if (!user) return c.json({ error: 'Not authenticated' }, 401);
-  return c.json({ user });
-});
-
-// --- FORM AUTH ENDPOINTS (for server-side forms) ---
-app.post('/signup', async (c) => {
-  const formData = await c.req.formData()
-  const email = (formData.get('email') as string)?.toLowerCase();
-  const password = formData.get('password') as string
-  if (!email || !password) {
-    return c.json({ error: "Missing fields" }, 400)
-  }
-  const userDO = getUserDO(c, email);
-  try {
-    const { user, token, refreshToken } = await userDO.signup({ email, password })
-    setCookie(c, 'token', token, {
-      httpOnly: true,
-      secure: false, // Allow HTTP for localhost
-      path: '/',
-      sameSite: 'Lax'
-    })
-    setCookie(c, 'refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: false, // Allow HTTP for localhost
-      path: '/',
-      sameSite: 'Lax'
-    })
-    return c.redirect('/');
-  } catch (e: any) {
-    return c.json({ error: e.message || "Signup error" }, 400)
-  }
-})
-
-app.post('/login', async (c) => {
-  const formData = await c.req.formData()
-  const email = (formData.get('email') as string)?.toLowerCase();
-  const password = formData.get('password') as string
-  if (!email || !password) {
-    return c.json({ error: "Missing fields" }, 400)
-  }
-  const userDO = getUserDO(c, email);
-  try {
-    const { user, token, refreshToken } = await userDO.login({ email, password })
-    setCookie(c, 'token', token, {
-      httpOnly: true,
-      secure: false, // Allow HTTP for localhost
-      path: '/',
-      sameSite: 'Lax'
-    })
-    setCookie(c, 'refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: false, // Allow HTTP for localhost
-      path: '/',
-      sameSite: 'Lax'
-    })
-    return c.redirect('/');
-  } catch (e: any) {
-    return c.json({ error: e.message || "Login error" }, 400)
-  }
-})
-
-// logout
-app.post('/logout', async (c) => {
-  try {
-    const token = getCookie(c, 'token') || '';
-    const tokenParts = token.split('.');
-    if (tokenParts.length === 3 && tokenParts[1]) {
-      const payload = JSON.parse(atob(tokenParts[1]));
-      const email = payload.email?.toLowerCase();
-      if (email) {
-        const userDO = getUserDO(c, email);
-        await userDO.logout();
-      }
-    }
-  } catch (e) {
-    console.error('Logout error', e);
-  }
-  deleteCookie(c, 'token');
-  deleteCookie(c, 'refreshToken');
-  return c.redirect('/');
-})
-
-app.get("/data", async (c) => {
-  const user = c.get('user');
-  if (!user) return c.json({ error: 'Unauthorized' }, 401);
-  const userDO = getUserDO(c, user.email);
-  const result = await userDO.get('data');
-  return c.json({ ok: true, data: result });
-});
-
-app.post("/data", async (c) => {
-  const user = c.get('user');
-  if (!user) return c.json({ error: 'Unauthorized' }, 401);
-  const formData = await c.req.formData();
-  const key = formData.get('key') as string;
-  const value = formData.get('value') as string;
-  const userDO = getUserDO(c, user.email);
-  const result = await userDO.set(key, value);
-  if (!result.ok) return c.json({ error: 'Failed to set data' }, 400);
-  return c.json({ ok: true, data: { key, value } });
-});
-
+// Extend the built-in worker with custom endpoints
 // --- POSTS ENDPOINTS (Database Table Demo) ---
-app.get("/posts", async (c) => {
+userDOWorker.get("/posts", async (c: Context) => {
   const user = c.get('user');
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
   const myAppDO = getMyAppDO(c, user.email);
@@ -297,21 +48,40 @@ app.get("/posts", async (c) => {
   return c.json({ ok: true, posts });
 });
 
-app.post("/posts", async (c) => {
+userDOWorker.post("/posts", async (c: Context) => {
   const user = c.get('user');
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
-  const formData = await c.req.formData();
-  const title = formData.get('title') as string;
-  const content = formData.get('content') as string;
+  
+  // Handle both JSON and form data
+  let title: string, content: string;
+  
+  const contentType = c.req.header('content-type');
+  if (contentType?.includes('application/json')) {
+    const body = await c.req.json();
+    title = body.title;
+    content = body.content;
+  } else {
+    const formData = await c.req.formData();
+    title = formData.get('title') as string;
+    content = formData.get('content') as string;
+  }
+  
   if (!title || !content) {
     return c.json({ error: "Missing title or content" }, 400);
   }
+  
   const myAppDO = getMyAppDO(c, user.email);
   const post = await myAppDO.createPost(title, content);
-  return c.redirect('/');
+  
+  // Return JSON response for API calls, redirect for form submissions
+  if (contentType?.includes('application/json')) {
+    return c.json({ ok: true, post });
+  } else {
+    return c.redirect('/');
+  }
 });
 
-app.delete("/posts/:id", async (c) => {
+userDOWorker.delete("/posts/:id", async (c: Context) => {
   const user = c.get('user');
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
   const postId = c.req.param('id');
@@ -320,15 +90,8 @@ app.delete("/posts/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-// Example protected endpoint
-app.get('/protected/profile', (c) => {
-  const user = c.get('user');
-  if (!user) return c.json({ error: 'Unauthorized' }, 401);
-  return c.json({ ok: true, user });
-});
-
-// --- Minimal Frontend (JSX) ---
-app.get('/', async (c) => {
+// --- Frontend (JSX) ---
+userDOWorker.get('/', async (c: Context) => {
   const user = c.get('user') || undefined;
   let data, posts: any[] = [];
 
@@ -449,10 +212,18 @@ app.get('/', async (c) => {
           window.createPostClient = async (title, content) => {
             try {
               console.log('📝 Creating post via client:', { title, content });
-              const posts = client.collection('posts');
-              const result = await posts.create({ title, content, createdAt: new Date().toISOString() });
-              console.log('✅ Post created:', result);
-              location.reload(); // Refresh to show new post
+              const response = await fetch('/posts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title, content })
+              });
+              if (response.ok) {
+                console.log('✅ Post created');
+                location.reload(); // Refresh to show new post
+              } else {
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to create post');
+              }
             } catch (error) {
               console.error('❌ Error creating post:', error);
               alert('Error creating post: ' + error.message);
@@ -528,6 +299,21 @@ app.get('/', async (c) => {
           Checking auth status...
         </div>
 
+        <div class="feature-highlight">
+          <h3>✨ Built-in Worker Features</h3>
+          <p>This example now uses the built-in <code>userDOWorker</code> from the userdo package, which provides:</p>
+          <ul>
+            <li>🔐 Complete authentication system with JWT tokens</li>
+            <li>🔒 Auth middleware and protected routes</li>
+            <li>📝 Form and JSON API endpoints</li>
+            <li>🗄️ Key-value storage endpoints (<code>/data</code>)</li>
+            <li>📡 Real-time events API (<code>/api/events</code>)</li>
+            <li>🔑 Password reset functionality</li>
+            <li>✅ Type-safe request/response validation</li>
+          </ul>
+          <p>We only added custom <code>/posts</code> endpoints for our database table demo!</p>
+        </div>
+
         <p>View extended demo <a href="https://userdo-hono-example.coey.dev">here</a></p>
 
         <a href="https://github.com/acoyfellow/userdo">GitHub</a>
@@ -571,7 +357,9 @@ app.get('/', async (c) => {
             <button type="submit">Logout (Server)</button>
             <button type="button" onclick="logoutClient()">Logout (Client)</button>
           </form>
-          <a href="/protected/profile">View Profile (protected)</a><br /><br />
+          <a href="/protected/profile">View Profile (protected)</a>
+          &nbsp;•&nbsp;
+          <a href="/api/docs">API Documentation</a><br /><br />
 
           <details>
             <summary>User Info</summary>
@@ -652,4 +440,4 @@ app.get('/', async (c) => {
   )
 })
 
-export default app
+export default userDOWorker
