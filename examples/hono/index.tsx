@@ -22,7 +22,6 @@ export class MyAppDO extends UserDO {
 
   async createPost(title: string, content: string) {
     console.log('🔥 MyAppDO.createPost called with:', { title, content });
-    console.log('🔥 Posts table:', this.posts);
 
     const postData = {
       title,
@@ -53,94 +52,110 @@ export { MyAppDO as UserDO }
 // Create the worker with our custom binding name
 const userDOWorker = createUserDOWorker('MY_APP_DO');
 
-// Add the specific /api/posts route BEFORE any generic routes
-userDOWorker.post("/api/posts", async (c) => {
-  console.log('🔥 Specific /api/posts endpoint hit!');
-
-  const user = c.get('user');
-  if (!user) return c.json({ error: 'Unauthorized' }, 401);
-
-  const data = await c.req.json();
-  const { title, content } = data;
-
-  if (!title || !content) {
-    return c.json({ error: "Missing title or content" }, 400);
-  }
-
-  const myAppDO = getMyAppDO(c, user.email);
-  const post = await myAppDO.createPost(title, content);
-
-  // Broadcast WebSocket notification
-  broadcastToUser(user.email, {
-    event: 'table:posts',
-    data: { action: 'create', data: post },
-    timestamp: Date.now()
-  }, 'MY_APP_DO', c.env);
-
-  return c.json({ ok: true, data: post });
-});
-
 // Create WebSocket handler for real-time features
 const webSocketHandler = createWebSocketHandler('MY_APP_DO');
 
+// Helper functions to DRY up common patterns
 const getMyAppDO = (c: any, email: string) => {
   return getUserDOFromContext(c, email, 'MY_APP_DO') as unknown as MyAppDO;
 }
 
+const requireAuth = (c: any) => {
+  const user = c.get('user');
+  if (!user) {
+    return { error: c.json({ error: 'Unauthorized' }, 401), user: null };
+  }
+  return { user, error: null };
+}
+
+const broadcastPostChange = (email: string, action: string, data: any, env: any) => {
+  broadcastToUser(email, {
+    event: 'table:posts',
+    data: { action, ...data },
+    timestamp: Date.now()
+  }, 'MY_APP_DO', env);
+}
+
 // --- POSTS ENDPOINTS (Database Table Demo) ---
 userDOWorker.get("/posts", async (c) => {
-  const user = c.get('user');
-  if (!user) return c.json({ error: 'Unauthorized' }, 401);
-  const myAppDO = getMyAppDO(c, user.email);
+  const { user, error } = requireAuth(c);
+  if (error) return error;
+
+  const myAppDO = getMyAppDO(c, user!.email);
   const posts = await myAppDO.getPosts();
   return c.json({ ok: true, posts });
 });
 
 userDOWorker.post("/posts", async (c) => {
-  const user = c.get('user');
-  if (!user) return c.json({ error: 'Unauthorized' }, 401);
-  const formData = await c.req.formData();
-  const title = formData.get('title') as string;
-  const content = formData.get('content') as string;
+  const { user, error } = requireAuth(c);
+  if (error) return error;
+
+  let title: string, content: string;
+
+  // Support both JSON and form data
+  const contentType = c.req.header('content-type') || '';
+  if (contentType.includes('application/json')) {
+    const data = await c.req.json();
+    ({ title, content } = data);
+  } else {
+    const formData = await c.req.formData();
+    title = formData.get('title') as string;
+    content = formData.get('content') as string;
+  }
+
   if (!title || !content) {
     return c.json({ error: "Missing title or content" }, 400);
   }
-  const myAppDO = getMyAppDO(c, user.email);
+
+  const myAppDO = getMyAppDO(c, user!.email);
   const post = await myAppDO.createPost(title, content);
 
-  // Broadcast WebSocket notification for post creation
-  console.log(`🔥 Post created for ${user.email}:`, post);
-  broadcastToUser(user.email, {
-    event: 'table:posts',
-    data: { action: 'create', data: post },
-    timestamp: Date.now()
-  }, 'MY_APP_DO', c.env);
+  // Broadcast WebSocket notification
+  console.log(`🔥 Post created for ${user!.email}:`, post);
+  broadcastPostChange(user!.email, 'create', { data: post }, c.env);
 
-  return c.redirect('/');
+  // Return JSON for API calls, redirect for form submissions
+  if (contentType.includes('application/json')) {
+    return c.json({ ok: true, data: post });
+  } else {
+    return c.redirect('/');
+  }
 });
 
 userDOWorker.delete("/posts/:id", async (c) => {
-  const user = c.get('user');
-  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const { user, error } = requireAuth(c);
+  if (error) return error;
+
   const postId = c.req.param('id');
-  const myAppDO = getMyAppDO(c, user.email);
+  const myAppDO = getMyAppDO(c, user!.email);
   await myAppDO.deletePost(postId);
 
-  // Broadcast WebSocket notification for post deletion
-  console.log(`🔥 Post deleted for ${user.email}:`, postId);
-  broadcastToUser(user.email, {
-    event: 'table:posts',
-    data: { action: 'delete', id: postId },
-    timestamp: Date.now()
-  }, 'MY_APP_DO', c.env);
+  // Broadcast WebSocket notification
+  console.log(`🔥 Post deleted for ${user!.email}:`, postId);
+  broadcastPostChange(user!.email, 'delete', { id: postId }, c.env);
 
   return c.json({ ok: true });
 });
 
+// Dedicated API endpoint for JSON-only post creation
+userDOWorker.post("/api/posts", async (c) => {
+  const { user, error } = requireAuth(c);
+  if (error) return error;
 
+  const { title, content } = await c.req.json();
 
+  if (!title || !content) {
+    return c.json({ error: "Missing title or content" }, 400);
+  }
 
+  const myAppDO = getMyAppDO(c, user!.email);
+  const post = await myAppDO.createPost(title, content);
 
+  // Broadcast WebSocket notification
+  broadcastPostChange(user!.email, 'create', { data: post }, c.env);
+
+  return c.json({ ok: true, data: post });
+});
 
 // --- Minimal Frontend (JSX) ---
 userDOWorker.get('/', async (c) => {
@@ -221,24 +236,6 @@ userDOWorker.get('/', async (c) => {
           }
         `}</style>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <script dangerouslySetInnerHTML={{
-          __html: `
-          async function deletePost(id) {
-            if (confirm('Are you sure you want to delete this post?')) {
-              try {
-                const response = await fetch('/posts/' + id, { method: 'DELETE' });
-                if (response.ok) {
-                  location.reload();
-                } else {
-                  console.log('Failed to delete post');
-                }
-              } catch (error) {
-                console.error('Error deleting post');
-              }
-            }
-          }
-        `
-        }}></script>
         <script type="module" src="https://unpkg.com/userdo@latest/dist/src/client.bundle.js"></script>
         <script type="module" dangerouslySetInnerHTML={{
           __html: `
@@ -256,20 +253,33 @@ userDOWorker.get('/', async (c) => {
             }
           });
           
-          // Client-side post creation using specific API endpoint
-          window.createPostClient = async (title, content) => {
+          // Helper function for API calls
+          const apiCall = async (url, options = {}) => {
             try {
-              const response = await fetch('/api/posts', {
-                method: 'POST',
+              const response = await fetch(url, {
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title, content })
+                ...options
               });
               
               if (!response.ok) {
-                throw new Error('Failed to create post');
+                throw new Error('Request failed');
               }
               
-              const result = await response.json();
+              return await response.json();
+            } catch (error) {
+              console.error('API call failed:', error);
+              throw error;
+            }
+          };
+          
+          // Client-side post creation
+          window.createPostClient = async (title, content) => {
+            try {
+              const result = await apiCall('/api/posts', {
+                method: 'POST',
+                body: JSON.stringify({ title, content })
+              });
+              
               console.log('✅ Post created!', result);
               document.getElementById('post-title').value = '';
               document.getElementById('post-content').value = '';
@@ -309,8 +319,7 @@ userDOWorker.get('/', async (c) => {
           // Function to update posts list in real-time
           window.updatePostsList = async () => {
             try {
-              const response = await fetch('/posts');
-              const data = await response.json();
+              const data = await apiCall('/posts');
               if (data.ok && data.posts) {
                 renderPostsList(data.posts);
               }
@@ -355,30 +364,21 @@ userDOWorker.get('/', async (c) => {
             if (!confirm('Are you sure you want to delete this post?')) return;
             
             try {
-              const response = await fetch('/posts/' + id, { method: 'DELETE' });
-              if (response.ok) {
-                console.log('✅ Post deleted!');
-                // The WebSocket will handle updating the UI
-              } else {
-                console.log('Failed to delete post');
-              }
+              await apiCall('/posts/' + id, { method: 'DELETE' });
+              console.log('✅ Post deleted!');
+              // The WebSocket will handle updating the UI
             } catch (error) {
               console.error('Error deleting post:', error);
             }
           };
           
-          // Client-side data operations using direct API
+          // Client-side data operations
           window.setDataClient = async (key, value) => {
             try {
-              const response = await fetch('/data', {
+              await apiCall('/data', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ key, value })
               });
-              
-              if (!response.ok) {
-                throw new Error('Failed to save data');
-              }
               
               console.log('✅ Data saved!');
               document.getElementById('data-value').value = '';
@@ -476,8 +476,6 @@ userDOWorker.get('/', async (c) => {
           </form>
           <a href="/protected/profile">View Profile (protected)</a><br /><br />
 
-
-
           <details>
             <summary>User Info</summary>
             <pre>{JSON.stringify(user, null, 2)}</pre>
@@ -508,7 +506,6 @@ userDOWorker.get('/', async (c) => {
           <form method="post" action="/posts">
             <fieldset>
               <legend><h2>🗃️ Database Tables</h2></legend>
-
               <p><em>Type-safe database tables with queries, backed by D1</em></p>
               <label for="post-title">Post Title:</label>
               <input id="post-title" name="title" type="text" placeholder="Enter post title" required /><br />
