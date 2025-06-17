@@ -473,9 +473,32 @@ export class UserDO extends DurableObject {
   }
 
   // WebSocket connection handling using Hibernation API
-  async acceptWebSocket(webSocket: WebSocket): Promise<void> {
-    // Use hibernation API to accept the WebSocket
-    this.ctx.acceptWebSocket(webSocket);
+  async fetch(request: Request): Promise<Response> {
+    // Handle WebSocket upgrades directly in the UserDO
+    if (request.headers.get('upgrade') === 'websocket') {
+      const webSocketPair = new WebSocketPair();
+      const [client, server] = Object.values(webSocketPair);
+
+      // Use hibernation API - this makes the WebSocket hibernatable
+      this.ctx.acceptWebSocket(server);
+
+      console.log('🔌 WebSocket accepted by UserDO with hibernation');
+
+      // Send welcome message
+      server.send(JSON.stringify({
+        event: 'connected',
+        message: 'WebSocket connected to UserDO!',
+        timestamp: Date.now()
+      }));
+
+      return new Response(null, {
+        status: 101,
+        webSocket: client,
+      });
+    }
+
+    // Handle other requests normally
+    return new Response('Not Found', { status: 404 });
   }
 
   // WebSocket message handler (called by runtime when hibernated)
@@ -483,7 +506,15 @@ export class UserDO extends DurableObject {
     try {
       const data = typeof message === 'string' ? message : new TextDecoder().decode(message);
       const parsed = JSON.parse(data);
-      console.log('WebSocket message received:', parsed);
+      console.log('📨 UserDO WebSocket message received:', parsed);
+
+      // Echo back
+      ws.send(JSON.stringify({
+        event: 'echo',
+        original: parsed,
+        message: 'Message received by UserDO',
+        timestamp: Date.now()
+      }));
     } catch (error) {
       console.error('WebSocket message error:', error);
     }
@@ -491,10 +522,8 @@ export class UserDO extends DurableObject {
 
   // WebSocket close handler (called by runtime when hibernated)
   async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
-    console.log('WebSocket closed:', { code, reason, wasClean });
+    console.log('🔌 UserDO WebSocket closed:', { code, reason, wasClean });
   }
-
-
 
   // Broadcast to all connected WebSocket clients using hibernation API
   protected broadcast(event: string, data: any): void {
@@ -502,6 +531,8 @@ export class UserDO extends DurableObject {
 
     // Use hibernation API to get all connected WebSockets
     const webSockets = this.ctx.getWebSockets();
+
+    console.log(`📡 UserDO Broadcasting to ${webSockets.length} WebSocket clients:`, { event, data });
 
     for (const ws of webSockets) {
       try {

@@ -1,6 +1,6 @@
 // In a real project, you would import from 'userdo':
-// import { createUserDOWorker, createWebSocketHandler, getUserDOFromContext, UserDO, type Env, type Table } from 'userdo'
-import { createUserDOWorker, createWebSocketHandler, getUserDOFromContext, UserDO, type Env, type Table } from '../../src'
+// import { createUserDOWorker, createWebSocketHandler, getUserDOFromContext, UserDO, type Env, type Table, broadcastToUser } from 'userdo'
+import { createUserDOWorker, createWebSocketHandler, getUserDOFromContext, UserDO, type Env, type Table, broadcastToUser } from '../../src'
 import { z } from 'zod'
 
 // Extend UserDO with database table functionality
@@ -21,11 +21,20 @@ export class MyAppDO extends UserDO {
   }
 
   async createPost(title: string, content: string) {
-    return await this.posts.create({
+    console.log('🔥 MyAppDO.createPost called with:', { title, content });
+    console.log('🔥 Posts table:', this.posts);
+
+    const postData = {
       title,
       content,
       createdAt: new Date().toISOString(),
-    });
+    };
+    console.log('🔥 Creating post with data:', postData);
+
+    const result = await this.posts.create(postData);
+    console.log('🔥 Post creation result:', result);
+
+    return result;
   }
 
   async getPosts() {
@@ -43,6 +52,33 @@ export { MyAppDO as UserDO }
 
 // Create the worker with our custom binding name
 const userDOWorker = createUserDOWorker('MY_APP_DO');
+
+// Add the specific /api/posts route BEFORE any generic routes
+userDOWorker.post("/api/posts", async (c) => {
+  console.log('🔥 Specific /api/posts endpoint hit!');
+
+  const user = c.get('user');
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+  const data = await c.req.json();
+  const { title, content } = data;
+
+  if (!title || !content) {
+    return c.json({ error: "Missing title or content" }, 400);
+  }
+
+  const myAppDO = getMyAppDO(c, user.email);
+  const post = await myAppDO.createPost(title, content);
+
+  // Broadcast WebSocket notification
+  broadcastToUser(user.email, {
+    event: 'table:posts',
+    data: { action: 'create', data: post },
+    timestamp: Date.now()
+  }, 'MY_APP_DO', c.env);
+
+  return c.json({ ok: true, data: post });
+});
 
 // Create WebSocket handler for real-time features
 const webSocketHandler = createWebSocketHandler('MY_APP_DO');
@@ -71,6 +107,15 @@ userDOWorker.post("/posts", async (c) => {
   }
   const myAppDO = getMyAppDO(c, user.email);
   const post = await myAppDO.createPost(title, content);
+
+  // Broadcast WebSocket notification for post creation
+  console.log(`🔥 Post created for ${user.email}:`, post);
+  broadcastToUser(user.email, {
+    event: 'table:posts',
+    data: { action: 'create', data: post },
+    timestamp: Date.now()
+  }, 'MY_APP_DO', c.env);
+
   return c.redirect('/');
 });
 
@@ -80,8 +125,19 @@ userDOWorker.delete("/posts/:id", async (c) => {
   const postId = c.req.param('id');
   const myAppDO = getMyAppDO(c, user.email);
   await myAppDO.deletePost(postId);
+
+  // Broadcast WebSocket notification for post deletion
+  console.log(`🔥 Post deleted for ${user.email}:`, postId);
+  broadcastToUser(user.email, {
+    event: 'table:posts',
+    data: { action: 'delete', id: postId },
+    timestamp: Date.now()
+  }, 'MY_APP_DO', c.env);
+
   return c.json({ ok: true });
 });
+
+
 
 
 
@@ -186,7 +242,7 @@ userDOWorker.get('/', async (c) => {
         <script type="module" src="https://unpkg.com/userdo@latest/dist/src/client.bundle.js"></script>
         <script type="module" dangerouslySetInnerHTML={{
           __html: `
-          import { UserDOClient } from 'https://unpkg.com/userdo@latest/dist/src/client.js';
+          import { UserDOClient } from 'https://unpkg.com/userdo@latest/dist/src/client.bundle.js';
           
           // Initialize the UserDO client
           const client = new UserDOClient('/api');
@@ -200,12 +256,21 @@ userDOWorker.get('/', async (c) => {
             }
           });
           
-          // Client-side post creation
+          // Client-side post creation using specific API endpoint
           window.createPostClient = async (title, content) => {
             try {
-              const posts = client.collection('posts');
-              const result = await posts.create({ title, content, createdAt: new Date().toISOString() });
-              console.log('✅ Post created!');
+              const response = await fetch('/api/posts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title, content })
+              });
+              
+              if (!response.ok) {
+                throw new Error('Failed to create post');
+              }
+              
+              const result = await response.json();
+              console.log('✅ Post created!', result);
               document.getElementById('post-title').value = '';
               document.getElementById('post-content').value = '';
             } catch (error) {
@@ -241,10 +306,80 @@ userDOWorker.get('/', async (c) => {
             }
           };
           
-          // Client-side data operations
+          // Function to update posts list in real-time
+          window.updatePostsList = async () => {
+            try {
+              const response = await fetch('/posts');
+              const data = await response.json();
+              if (data.ok && data.posts) {
+                renderPostsList(data.posts);
+              }
+            } catch (error) {
+              console.error('Error updating posts list:', error);
+            }
+          };
+          
+          // Function to render posts list
+          window.renderPostsList = (posts) => {
+            const postsContainer = document.getElementById('posts-container');
+            if (!postsContainer) return;
+            
+            if (posts.length === 0) {
+              postsContainer.innerHTML = '<fieldset><legend><h2>Your Posts</h2></legend><p><em>No posts yet. Create your first post above!</em></p></fieldset>';
+              return;
+            }
+            
+            const postsHtml = \`
+              <fieldset>
+                <legend><h2>Your Posts (\${posts.length})</h2></legend>
+                <p><em>Posts are stored in a user-scoped database table with automatic querying</em></p>
+                \${posts.map(post => \`
+                  <div class="post">
+                    <h3>\${post.title}</h3>
+                    <p>\${post.content}</p>
+                    <div class="post-meta">
+                      <small>Created: \${new Date(post.createdAt).toLocaleString()}</small>
+                      <small> • ID: \${post.id}</small>
+                      <br />
+                      <button class="delete-btn" onclick="deletePostClient('\${post.id}')">Delete</button>
+                    </div>
+                  </div>
+                \`).join('')}
+              </fieldset>
+            \`;
+            postsContainer.innerHTML = postsHtml;
+          };
+          
+          // Client-side post deletion
+          window.deletePostClient = async (id) => {
+            if (!confirm('Are you sure you want to delete this post?')) return;
+            
+            try {
+              const response = await fetch('/posts/' + id, { method: 'DELETE' });
+              if (response.ok) {
+                console.log('✅ Post deleted!');
+                // The WebSocket will handle updating the UI
+              } else {
+                console.log('Failed to delete post');
+              }
+            } catch (error) {
+              console.error('Error deleting post:', error);
+            }
+          };
+          
+          // Client-side data operations using direct API
           window.setDataClient = async (key, value) => {
             try {
-              await client.set(key, value);
+              const response = await fetch('/data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key, value })
+              });
+              
+              if (!response.ok) {
+                throw new Error('Failed to save data');
+              }
+              
               console.log('✅ Data saved!');
               document.getElementById('data-value').value = '';
             } catch (error) {
@@ -252,22 +387,43 @@ userDOWorker.get('/', async (c) => {
             }
           };
           
-          // Auto-enable real-time updates (invisible)
-          client.onChange('data', (change) => {
-            console.log('🔥 Data change detected:', change);
-            // Update the stored data display in real-time
-            const storedDataEl = document.getElementById('stored-data');
-            if (storedDataEl) {
-              storedDataEl.textContent = JSON.stringify(change.value, null, 2);
+          // Auto-enable real-time updates via WebSocket
+          const ws = new WebSocket((location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/api/ws');
+          
+          ws.onopen = () => {
+            console.log('🔌 WebSocket connected for real-time updates');
+          };
+          
+          ws.onmessage = (event) => {
+            try {
+              const message = JSON.parse(event.data);
+              console.log('🔥 Real-time update received:', message);
+              
+              // Handle data changes
+              if (message.event && message.event.startsWith('kv:')) {
+                const storedDataEl = document.getElementById('stored-data');
+                if (storedDataEl && message.data) {
+                  storedDataEl.textContent = JSON.stringify(message.data.value, null, 2);
+                }
+              }
+              
+              // Handle post changes - update posts list in real-time
+              if (message.event === 'table:posts') {
+                console.log('🔥 Posts updated, refreshing posts list...');
+                updatePostsList();
+              }
+            } catch (error) {
+              console.error('Error processing WebSocket message:', error);
             }
-          });
-
-          // Auto-watch posts for changes and refresh the page to show updates
-          const posts = client.collection('posts');
-          posts.onChange((change) => {
-            console.log('🔥 Posts change detected:', change);
-            // Refresh the page to show updated posts list
-          });
+          };
+          
+          ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+          };
+          
+          ws.onclose = () => {
+            console.log('🔌 WebSocket disconnected');
+          };
           `
         }}></script>
       </head>
@@ -365,36 +521,38 @@ userDOWorker.get('/', async (c) => {
             </fieldset>
           </form>
 
-          {posts && posts.length > 0 && (
-            <fieldset>
-              <legend><h2>Your Posts ({posts.length})</h2></legend>
-              <p><em>Posts are stored in a user-scoped database table with automatic querying</em></p>
-              {posts.map((post: any) => (
-                <div class="post" key={post.id}>
-                  <h3>{post.title}</h3>
-                  <p>{post.content}</p>
-                  <div class="post-meta">
-                    <small>Created: {new Date(post.createdAt).toLocaleString()}</small>
-                    <small> • ID: {post.id}</small>
-                    <br />
-                    <button
-                      class="delete-btn"
-                      onclick={'deletePost("' + post.id + '")'}
-                    >
-                      Delete
-                    </button>
+          <div id="posts-container">
+            {posts && posts.length > 0 && (
+              <fieldset>
+                <legend><h2>Your Posts ({posts.length})</h2></legend>
+                <p><em>Posts are stored in a user-scoped database table with automatic querying</em></p>
+                {posts.map((post: any) => (
+                  <div class="post" key={post.id}>
+                    <h3>{post.title}</h3>
+                    <p>{post.content}</p>
+                    <div class="post-meta">
+                      <small>Created: {new Date(post.createdAt).toLocaleString()}</small>
+                      <small> • ID: {post.id}</small>
+                      <br />
+                      <button
+                        class="delete-btn"
+                        onclick={'deletePostClient("' + post.id + '")'}
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </fieldset>
-          )}
+                ))}
+              </fieldset>
+            )}
 
-          {posts && posts.length === 0 && (
-            <fieldset>
-              <legend><h2>Your Posts</h2></legend>
-              <p><em>No posts yet. Create your first post above!</em></p>
-            </fieldset>
-          )}
+            {posts && posts.length === 0 && (
+              <fieldset>
+                <legend><h2>Your Posts</h2></legend>
+                <p><em>No posts yet. Create your first post above!</em></p>
+              </fieldset>
+            )}
+          </div>
 
         </section>}
       </body>

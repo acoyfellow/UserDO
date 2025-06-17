@@ -367,21 +367,6 @@ app.get('/protected/profile', (c): Response => {
   return c.json({ ok: true, user });
 });
 
-// Simple API status endpoint - moved to /api/status so it doesn't interfere with user apps
-app.get('/api/docs', async (c) => {
-  return c.json({
-    name: 'UserDO',
-    version: '0.1.37',
-    status: 'ready',
-    endpoints: {
-      auth: ['/api/signup', '/api/login', '/api/logout', '/api/me'],
-      data: ['/data'],
-      events: ['/api/events'],
-      passwordReset: ['/api/password-reset/request', '/api/password-reset/confirm']
-    },
-    docs: 'https://github.com/acoyfellow/userdo'
-  });
-});
 
 // Export utilities for extending the worker
 export function getUserDOFromContext(c: Context, email: string, bindingName: string = 'USERDO'): UserDO {
@@ -713,6 +698,14 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
         return c.json(errorResponse, 400);
       }
 
+      // Broadcast WebSocket notification for data changes
+      console.log(`🔥 Data changed for ${user.email}: ${validKey} = ${JSON.stringify(validValue)}`);
+      broadcastToUser(user.email, {
+        event: `kv:${validKey}`,
+        data: { key: validKey, value: validValue },
+        timestamp: Date.now()
+      }, bindingName, c.env);
+
       const response: DataResponse = { ok: true, data: { key: validKey, value: validValue } };
       return c.json(response);
     } catch (e: any) {
@@ -730,18 +723,8 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
     return c.json({ ok: true, user });
   });
 
-  // Generic collection endpoints for client API
-  app.post('/api/:collection', async (c) => {
-    const user = c.get('user');
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
-
-    const collection = c.req.param('collection');
-    const data = await c.req.json();
-
-    // This is a placeholder - in a real implementation, you'd delegate to the UserDO
-    // For now, just return success to make the client work
-    return c.json({ ok: true, data: { id: crypto.randomUUID(), ...data } });
-  });
+  // Note: Generic collection endpoints removed - apps should implement specific routes
+  // like /api/posts, /api/comments, etc. for proper database integration
 
   app.get('/api/docs', async (c) => {
     return c.json({
@@ -759,6 +742,24 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
   });
 
   return app;
+}
+
+// Helper to broadcast to user's WebSocket connections via UserDO
+export function broadcastToUser(email: string, message: any, bindingName: string = 'USERDO', env: any) {
+  // Get the UserDO and call its broadcast method
+  const binding = env[bindingName];
+  if (!binding) {
+    console.error(`Durable Object binding '${bindingName}' not found`);
+    return;
+  }
+
+  const userDOID = binding.idFromName(email);
+  const userDO = binding.get(userDOID);
+
+  // Call the UserDO's broadcast method (this will be async but we don't await it)
+  userDO.broadcast(message.event, message.data).catch((error: any) => {
+    console.error('Failed to broadcast to UserDO:', error);
+  });
 }
 
 // Separate WebSocket handler factory
@@ -798,69 +799,17 @@ export function createWebSocketHandler(bindingName: string = 'USERDO') {
 
           console.log(`🔌 WebSocket auth successful for: ${email}`);
 
-          // Handle WebSocket upgrade directly (can't delegate to UserDO due to serialization)
-          const webSocketPair = new WebSocketPair();
-          const [client, server] = Object.values(webSocketPair);
+          // Delegate WebSocket handling to the UserDO using hibernation API
+          const binding = (env as any)[bindingName];
+          if (!binding) {
+            throw new Error(`Durable Object binding '${bindingName}' not found`);
+          }
 
-          // Set up WebSocket handling with immediate demo messages
-          server.accept();
+          const userDOID = binding.idFromName(email);
+          const userDO = binding.get(userDOID);
 
-          console.log('🔌 WebSocket accepted, setting up handlers');
-
-          // Send welcome message immediately
-          server.send(JSON.stringify({
-            event: 'connected',
-            message: 'WebSocket connected successfully!',
-            user: email,
-            timestamp: Date.now()
-          }));
-
-          // Send a demo message every 5 seconds
-          const demoInterval = setInterval(() => {
-            server.send(JSON.stringify({
-              event: 'demo',
-              message: 'Demo message from server',
-              timestamp: Date.now()
-            }));
-          }, 5000);
-
-          server.addEventListener('message', (event) => {
-            console.log('📨 WebSocket message received:', event.data);
-            try {
-              const data = JSON.parse(event.data);
-
-              // Echo back with confirmation
-              server.send(JSON.stringify({
-                event: 'echo',
-                original: data,
-                message: 'Message received and echoed back',
-                timestamp: Date.now()
-              }));
-
-              // Simulate a data change notification
-              setTimeout(() => {
-                server.send(JSON.stringify({
-                  event: 'data_changed',
-                  key: 'demo_key',
-                  value: 'Demo value updated',
-                  timestamp: Date.now()
-                }));
-              }, 1000);
-
-            } catch (error) {
-              console.error('Error parsing WebSocket message:', error);
-            }
-          });
-
-          server.addEventListener('close', () => {
-            console.log('🔌 WebSocket closed');
-            clearInterval(demoInterval);
-          });
-
-          return new Response(null, {
-            status: 101,
-            webSocket: client,
-          });
+          // Forward the WebSocket upgrade request to the UserDO
+          return userDO.fetch(request);
 
         } catch (error) {
           console.log('❌ WebSocket auth failed:', error);

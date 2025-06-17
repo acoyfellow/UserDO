@@ -5,6 +5,6 @@ export { GenericQuery } from "./database/query";
 export { UserDOClient } from "./client";
 
 // Worker exports
-export { userDOWorker, createUserDOWorker, createWebSocketHandler, getUserDOFromContext } from "./worker";
+export { userDOWorker, createUserDOWorker, createWebSocketHandler, getUserDOFromContext, broadcastToUser } from "./worker";
 export type { UserDOEndpoints, EndpointRequest, EndpointResponse, EndpointQuery } from "./worker-types";
 export * from "./worker-types";
