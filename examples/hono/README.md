@@ -52,17 +52,17 @@ export class MyAppDO extends UserDO {
 }
 ```
 
-### 3. Use the base worker and add custom endpoints
+### 3. Use the configurable worker factory
 
 ```ts
-import { userDOWorker, getUserDO } from 'userdo/worker'
+import { createUserDOWorker, getUserDOFromContext } from 'userdo'
 
-// Start with the base worker (includes all auth endpoints)
-const app = userDOWorker;
+// Create worker with your custom binding name
+const userDOWorker = createUserDOWorker('MY_APP_DO');
 
 // Helper to get your extended DO
 const getMyAppDO = (c: any, email: string) => {
-  return getUserDO(c, email) as MyAppDO;
+  return getUserDOFromContext(c, email, 'MY_APP_DO') as MyAppDO;
 }
 
 // Add your custom endpoints
@@ -161,13 +161,10 @@ Update `wrangler.jsonc` with your settings:
 {
   "name": "userdo-hono-example",
   "main": "index.tsx",
-  "vars": {
-    "JWT_SECRET": "your-jwt-secret-here"
-  },
   "durable_objects": {
     "bindings": [
       {
-        "name": "USERDO",
+        "name": "MY_APP_DO",
         "class_name": "MyAppDO"
       }
     ]
@@ -186,7 +183,8 @@ Update `wrangler.jsonc` with your settings:
 ## Files
 
 - `index.tsx` - Main Hono app with extended UserDO class
-- `wrangler.jsonc` - Configuration showing single DO binding and D1 database
+- `wrangler.example.jsonc` - Example configuration template (safe for version control)
+- `wrangler.jsonc` - Your local configuration (gitignored, created from example)
 - `package.json` - Dependencies
 - `tsconfig.json` - TypeScript configuration
 
@@ -205,23 +203,37 @@ cp -r examples/hono my-userdo-app
 cd my-userdo-app
 ```
 
-### Step 2: Install Dependencies
+### Step 2: Set Up Configuration
+Create your local configuration file:
+```bash
+# Copy the example config (this file is gitignored for security)
+cp wrangler.example.jsonc wrangler.jsonc
+```
+
+### Step 3: Install Dependencies
 ```bash
 bun install
 # or: npm install
 ```
 
-### Step 3: Create a D1 Database
-```bash
-wrangler d1 create my_app_db
-```
-Update `wrangler.jsonc` with the generated database ID.
+### Step 4: Set Up JWT Secret
 
-### Step 4: Set Up Authentication Secret
+**For local development:**
+Add a JWT secret to your `wrangler.jsonc` for local testing:
+```jsonc
+{
+  // ... other config
+  "vars": {
+    "JWT_SECRET": "your-local-dev-secret-here"
+  }
+}
+```
+
+**For production deployment:**
 ```bash
-# Generate and set a secure JWT secret
+# Set a secure JWT secret (never use the dev one in production!)
 wrangler secret put JWT_SECRET
-# When prompted, enter a random 32+ character string
+# When prompted, enter a secure random string
 ```
 
 > **💡 Tip**: Use `openssl rand -base64 32` to generate a secure secret
@@ -257,12 +269,18 @@ If you want to modify and develop:
 ## 🔧 Configuration Options
 
 ### JWT Secret Management
-- **For local dev**: The example includes a placeholder in `wrangler.jsonc`
-- **For production**: Remove the var and use `wrangler secret put JWT_SECRET`
+- **For local dev**: Add `JWT_SECRET` to the `vars` section in your local `wrangler.jsonc`
+- **For production**: Use `wrangler secret put JWT_SECRET` (never commit secrets to git!)
+
+### Binding Architecture
+This example uses a separate Durable Object binding (`MY_APP_DO`) instead of the default `USERDO` binding. This allows you to:
+- Deploy this example alongside the main UserDO library without conflicts
+- Have completely isolated data storage per application
+- Use different DO class implementations (`MyAppDO` vs `UserDO`)
 
 ### Customizing the App
 - Modify `MyAppDO` class in `index.tsx` to add your business logic
-- Update `wrangler.jsonc` to change the app name and configuration
+- Update your local `wrangler.jsonc` to change the app name and configuration
 - Customize the HTML/CSS in the route handlers
 
 ## Key Features Demonstrated
@@ -327,51 +345,44 @@ Then add routes in your Hono app to expose these methods via HTTP endpoints.
 - **Less complexity**: Single source of truth per user
 - **More intuitive**: Natural inheritance pattern 
 
-## ⚡️ JWT_SECRET: Dev vs Production (TL;DR)
+## ⚡️ Security Best Practices
 
-- **For local dev:**  
-  Add to `wrangler.jsonc`:
-  ```jsonc
-  "vars": { "JWT_SECRET": "your-jwt-secret-here" }
-  ```
-- **For production:**  
-  1. Remove the var and use `wrangler secret put JWT_SECRET`
-  2. Deploy.
+### Configuration Files
+- `wrangler.example.jsonc` - Safe template (committed to git)
+- `wrangler.jsonc` - Your local config (gitignored, never committed)
 
-> **Note:**  
-> You can't have both a var and a secret with the same name at once.
+### JWT Secret Management
 
----
+**For local development:**
+```jsonc
+// In your local wrangler.jsonc
+{
+  "vars": {
+    "JWT_SECRET": "your-local-dev-secret-here"
+  }
+}
+```
 
-**Security:**  
-- **For local development:**
-  - Add `JWT_SECRET` to your `wrangler.jsonc` under `vars` for easy dev and copy-paste.
-  - Example:
-    ```jsonc
-    "vars": {
-      "JWT_SECRET": "your-jwt-secret-here"
-    }
-    ```
-- **For production deployment:**
-  1. **Remove** (or comment out) the `JWT_SECRET` line from your `wrangler.jsonc`.
-  2. Set your real secret with:
-     ```sh
-     wrangler secret put JWT_SECRET
-     ```
-  3. Deploy as usual.
+**For production deployment:**
+```bash
+# Set production secret (more secure than vars)
+wrangler secret put JWT_SECRET
+# Then deploy without JWT_SECRET in vars
+wrangler deploy
+```
 
-**You cannot have both a var and a secret with the same name at the same time.**
+> **Important**: Never commit real secrets to version control!
 
-### Quick Switch Workflow
-1. For dev: keep the var in your config.
-2. Before prod deploy: remove the var, set the secret, then deploy.
-3. After deploy: you can add the var back for local dev if needed.
+### Deployment Workflow
+1. **Local dev**: Use `vars` in your local `wrangler.jsonc`
+2. **Production**: Use `wrangler secret put` and remove from `vars`
+3. **Open source safe**: Only `wrangler.example.jsonc` is in git
 
 ---
 
-## Security Notice (updated)
+## Security Notice
 
-- The `wrangler.jsonc` file in this repo uses a placeholder JWT secret for demonstration and local development only.
-- **Before deploying to production, you must remove the JWT_SECRET var from wrangler.jsonc and set it as a secret with `wrangler secret put JWT_SECRET`.**
-- Never use the example secret in a real deployment.
-- For live demos, secrets are rotated and demo data is periodically reset for security. 
+- This example uses a secure configuration approach suitable for open source projects
+- The `wrangler.jsonc` file is gitignored and never committed
+- Always use `wrangler secret put JWT_SECRET` for production deployments
+- Never use development secrets in production environments 

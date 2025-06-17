@@ -1,0 +1,28 @@
+{
+  "name": "userdo-multi-tenant",
+  "main": "index.ts",
+  "compatibility_date": "2024-04-03",
+  "vars": {
+    "JWT_SECRET": "your-jwt-secret-here"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ACME_DO",
+        "class_name": "TenantDO"
+      },
+      {
+        "name": "GLOBEX_DO",
+        "class_name": "TenantDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "TenantDO"
+      ]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 // In a real project, you would import from 'userdo':
-// import { userDOWorker, getUserDOFromContext, UserDO, type Env, type Table } from 'userdo'
-import { userDOWorker, getUserDOFromContext, UserDO, type Env, type Table } from '../../src'
+// import { createUserDOWorker, getUserDOFromContext, UserDO, type Env, type Table } from 'userdo'
+import { createUserDOWorker, getUserDOFromContext, UserDO, type Env, type Table } from '../../src'
 import { z } from 'zod'
 
 // Extend UserDO with database table functionality
@@ -41,8 +41,11 @@ export class MyAppDO extends UserDO {
 // Export MyAppDO as the default Durable Object
 export { MyAppDO as UserDO }
 
+// Create the worker with our custom binding name
+const userDOWorker = createUserDOWorker('MY_APP_DO');
+
 const getMyAppDO = (c: any, email: string) => {
-  return getUserDOFromContext(c, email) as unknown as MyAppDO;
+  return getUserDOFromContext(c, email, 'MY_APP_DO') as unknown as MyAppDO;
 }
 
 // --- POSTS ENDPOINTS (Database Table Demo) ---
@@ -83,7 +86,7 @@ userDOWorker.get('/', async (c) => {
   let data, posts: any[] = [];
 
   if (user) {
-    const userDO = getUserDOFromContext(c, user.email);
+    const userDO = getUserDOFromContext(c, user.email, 'MY_APP_DO');
     const myAppDO = getMyAppDO(c, user.email);
     data = await userDO.get("data");
     posts = await myAppDO.getPosts();

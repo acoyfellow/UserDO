@@ -54,22 +54,24 @@ export class MyAppDO extends UserDO {
 }
 ```
 
-## Using the built-in worker
+## Using the worker factory
 
 ```ts
-// Use as-is
-import { userDOWorker } from 'userdo';
-export default userDOWorker;
+// Create worker with default binding (USERDO)
+import { createUserDOWorker } from 'userdo';
+export default createUserDOWorker();
 
-// Or extend with your routes
-import { userDOWorker, getUserDOFromContext } from 'userdo';
+// Or create worker with custom binding name
+import { createUserDOWorker, getUserDOFromContext } from 'userdo';
+
+const userDOWorker = createUserDOWorker('MY_APP_DO');
 
 userDOWorker.post('/api/posts', async (c) => {
   const user = c.get('user');
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
   
   const { title, content } = await c.req.json();
-  const myAppDO = getUserDOFromContext(c, user.email) as MyAppDO;
+  const myAppDO = getUserDOFromContext(c, user.email, 'MY_APP_DO') as MyAppDO;
   const post = await myAppDO.createPost(title, content);
   
   return c.json({ post });
@@ -124,6 +126,23 @@ client.connectRealtime();
 npm install userdo
 ```
 
+## Multiple projects
+
+You can use UserDO in multiple projects without conflicts by using different binding names:
+
+```ts
+// Project 1: Blog
+const blogWorker = createUserDOWorker('BLOG_DO');
+
+// Project 2: E-commerce
+const shopWorker = createUserDOWorker('SHOP_DO');
+
+// Project 3: Default binding
+const defaultWorker = createUserDOWorker(); // Uses 'USERDO'
+```
+
+Each project will have completely isolated user data and can be deployed to the same Cloudflare account.
+
 ## Wrangler configuration
 
 ```jsonc
@@ -135,8 +154,8 @@ npm install userdo
   "durable_objects": {
     "bindings": [
       {
-        "name": "USERDO",
-        "class_name": "UserDO"
+        "name": "USERDO", // or any custom name like "MY_APP_DO"
+        "class_name": "UserDO" // or your extended class like "MyAppDO"
       }
     ]
   }

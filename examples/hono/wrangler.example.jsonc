@@ -5,9 +5,6 @@
   "observability": {
     "enabled": true
   },
-  "vars": {
-    "JWT_SECRET": "dev-secret-HMm2fW174Foq8ZYh8C/eqQi0R9GNu7XMGBLsh1DUwHw="
-  },
   "durable_objects": {
     "bindings": [
       {
