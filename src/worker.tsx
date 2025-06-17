@@ -338,9 +338,19 @@ app.post("/data", async (c): Promise<Response> => {
       return c.json(errorResponse, 401);
     }
 
-    const formData = await c.req.formData();
-    const key = formData.get('key') as string;
-    const value = formData.get('value') as string;
+    let key: string, value: string;
+
+    // Support both JSON and form data
+    const contentType = c.req.header('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const body = await c.req.json();
+      key = body.key;
+      value = body.value;
+    } else {
+      const formData = await c.req.formData();
+      key = formData.get('key') as string;
+      value = formData.get('value') as string;
+    }
 
     // Validate the data
     const { key: validKey, value: validValue } = SetDataRequestSchema.parse({ key, value });
@@ -699,9 +709,19 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
         return c.json(errorResponse, 401);
       }
 
-      const formData = await c.req.formData();
-      const key = formData.get('key') as string;
-      const value = formData.get('value') as string;
+      let key: string, value: string;
+
+      // Support both JSON and form data
+      const contentType = c.req.header('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const body = await c.req.json();
+        key = body.key;
+        value = body.value;
+      } else {
+        const formData = await c.req.formData();
+        key = formData.get('key') as string;
+        value = formData.get('value') as string;
+      }
 
       const { key: validKey, value: validValue } = SetDataRequestSchema.parse({ key, value });
 

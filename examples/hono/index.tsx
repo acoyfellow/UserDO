@@ -80,6 +80,9 @@ userDOWorker.delete("/posts/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+
+
+
 // --- Minimal Frontend (JSX) ---
 userDOWorker.get('/', async (c) => {
   const user = c.get('user') || undefined;
@@ -177,10 +180,9 @@ userDOWorker.get('/', async (c) => {
           }
         `
         }}></script>
-        <script type="module" src="https://unpkg.com/userdo@latest/dist/src/client.js"></script>
         <script type="module" dangerouslySetInnerHTML={{
           __html: `
-          import { UserDOClient } from 'https://unpkg.com/userdo@latest/dist/src/client.js';
+          import { UserDOClient } from '../../dist/src/client.js';
           
           // Initialize the client and expose it globally for debugging
           const client = new UserDOClient('/api');
@@ -205,7 +207,10 @@ userDOWorker.get('/', async (c) => {
               const posts = client.collection('posts');
               const result = await posts.create({ title, content, createdAt: new Date().toISOString() });
               console.log('✅ Post created:', result);
-              location.reload(); // Refresh to show new post
+              alert('✅ Post created! (Client-side)');
+              // Clear the form fields
+              document.getElementById('post-title').value = '';
+              document.getElementById('post-content').value = '';
             } catch (error) {
               console.error('❌ Error creating post:', error);
               alert('Error creating post: ' + error.message);
@@ -251,21 +256,50 @@ userDOWorker.get('/', async (c) => {
             }
           };
           
-          // Debug function to check current state
+          // Add client-side KV data operations using built-in client methods
+          window.setDataClient = async (key, value) => {
+            try {
+              console.log('💾 Setting data via client:', { key, value });
+              await client.set(key, value);
+              console.log('✅ Data set successfully');
+              alert('✅ Data saved! (Client-side)');
+              // Clear the input field
+              document.getElementById('data-value').value = '';
+            } catch (error) {
+              console.error('❌ Error setting data:', error);
+              alert('Error setting data: ' + error.message);
+            }
+          };
+          
+          // Simple real-time functionality
+          window.connectRealtime = () => {
+            console.log('⚡ Enabling real-time updates...');
+            client.connectRealtime();
+            
+            // Listen for data changes
+            client.on('table:posts:create', (data) => {
+              alert('⚡ Real-time: New post created!');
+              console.log('Post created:', data);
+            });
+            
+            client.on('kv:set', (data) => {
+              alert('⚡ Real-time: Data updated!');
+              console.log('Data updated:', data);
+            });
+            
+            alert('✅ Real-time updates enabled! Try creating a post or updating data.');
+          };
+          
+          // Debug function
           window.debugUserDO = () => {
             console.log('🔍 UserDO Client Debug Info:');
             console.log('- Client instance:', client);
             console.log('- Current user:', client.user);
-            console.log('- Auth uses cookies only (no localStorage)');
           };
           
-          console.log('💡 Available debug functions:');
-          console.log('- window.userDOClient: Access the client instance');
+          console.log('💡 Available functions:');
+          console.log('- window.connectRealtime(): Enable real-time updates');
           console.log('- window.debugUserDO(): Show debug info');
-          console.log('- window.loginClient(email, password): Login via client');
-          console.log('- window.signupClient(email, password): Signup via client');
-          console.log('- window.logoutClient(): Logout via client');
-          console.log('- window.createPostClient(title, content): Create post via client');
           `
         }}></script>
       </head>
@@ -320,6 +354,21 @@ userDOWorker.get('/', async (c) => {
           </form>
           <a href="/protected/profile">View Profile (protected)</a><br /><br />
 
+          {/* Real-time Synchronization Demo */}
+          <fieldset>
+            <legend><h2>⚡ Real-time Updates</h2></legend>
+            <div class="feature-highlight">
+              <p><strong>See your data changes in real-time!</strong></p>
+              <p>Connect to real-time events to get instant notifications when your data changes.</p>
+            </div>
+
+            <button type="button" onclick="connectRealtime()" style="background: #28a745; color: white; border: none; padding: 10px 15px; border-radius: 5px; margin-right: 10px;">
+              Enable Real-time Updates
+            </button>
+
+            <p><em>Once enabled, you'll see alerts when you create posts or update data!</em></p>
+          </fieldset>
+
           <details>
             <summary>User Info</summary>
             <pre>{JSON.stringify(user, null, 2)}</pre>
@@ -334,7 +383,10 @@ userDOWorker.get('/', async (c) => {
               <input id="data-key" name="key" type="text" placeholder="Key" value="data" readonly required /><br />
               <label for="data-value">Value:</label>
               <input id="data-value" name="value" type="text" placeholder="Value" required /><br />
-              <button type="submit">Set Data</button>
+              <button type="submit">Set Data (Server)</button>
+              <button type="button" onclick="setDataClient(document.getElementById('data-key').value, document.getElementById('data-value').value)">
+                Set Data (Client)
+              </button>
               <hr />
               {data && (
                 <details>

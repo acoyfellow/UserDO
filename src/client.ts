@@ -111,6 +111,27 @@ class UserDOClient {
       listeners.forEach(l => l(parsed));
     };
   }
+  // KV Storage methods
+  async get(key: string): Promise<any> {
+    const res = await fetch(`${this.baseUrl.replace('/api', '')}/data?key=${encodeURIComponent(key)}`, {
+      headers: this.headers,
+      credentials: 'include'
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json() as { data: any };
+    return data.data;
+  }
+
+  async set(key: string, value: any): Promise<{ ok: boolean }> {
+    const res = await fetch(`${this.baseUrl.replace('/api', '')}/data`, {
+      method: "POST",
+      headers: this.headers,
+      credentials: 'include',
+      body: JSON.stringify({ key, value })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return { ok: true };
+  }
 
   collection(name: string) {
     const base = `${this.baseUrl}/${name}`;
