@@ -1,6 +1,6 @@
 // In a real project, you would import from 'userdo':
-// import { createUserDOWorker, getUserDOFromContext, UserDO, type Env, type Table } from 'userdo'
-import { createUserDOWorker, getUserDOFromContext, UserDO, type Env, type Table } from '../../src'
+// import { createUserDOWorker, createWebSocketHandler, getUserDOFromContext, UserDO, type Env, type Table } from 'userdo'
+import { createUserDOWorker, createWebSocketHandler, getUserDOFromContext, UserDO, type Env, type Table } from '../../src'
 import { z } from 'zod'
 
 // Extend UserDO with database table functionality
@@ -17,7 +17,7 @@ export class MyAppDO extends UserDO {
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
-    this.posts = this.table('posts', PostSchema, { userScoped: true });
+    this.posts = this.table('posts', PostSchema as any, { userScoped: true });
   }
 
   async createPost(title: string, content: string) {
@@ -43,6 +43,9 @@ export { MyAppDO as UserDO }
 
 // Create the worker with our custom binding name
 const userDOWorker = createUserDOWorker('MY_APP_DO');
+
+// Create WebSocket handler for real-time features
+const webSocketHandler = createWebSocketHandler('MY_APP_DO');
 
 const getMyAppDO = (c: any, email: string) => {
   return getUserDOFromContext(c, email, 'MY_APP_DO') as unknown as MyAppDO;
@@ -171,10 +174,10 @@ userDOWorker.get('/', async (c) => {
                 if (response.ok) {
                   location.reload();
                 } else {
-                  alert('Failed to delete post');
+                  console.log('Failed to delete post');
                 }
               } catch (error) {
-                alert('Error deleting post');
+                console.error('Error deleting post');
               }
             }
           }
@@ -185,15 +188,11 @@ userDOWorker.get('/', async (c) => {
           __html: `
           import { UserDOClient } from 'https://unpkg.com/userdo@latest/dist/src/client.js';
           
-          // Initialize the client and expose it globally for debugging
+          // Initialize the UserDO client
           const client = new UserDOClient('/api');
-          window.userDOClient = client;
           
-          console.log('🚀 UserDO Client initialized:', client);
-          
-          // Listen for auth state changes
+          // Update auth status display
           client.onAuthStateChanged(user => {
-            console.log('🔐 Auth state changed:', user);
             const authStatus = document.getElementById('auth-status');
             if (authStatus) {
               authStatus.textContent = user ? \`Logged in as: \${user.email}\` : 'Not logged in';
@@ -201,109 +200,74 @@ userDOWorker.get('/', async (c) => {
             }
           });
           
-          // Add client-side post creation
+          // Client-side post creation
           window.createPostClient = async (title, content) => {
             try {
-              console.log('📝 Creating post via client:', { title, content });
               const posts = client.collection('posts');
               const result = await posts.create({ title, content, createdAt: new Date().toISOString() });
-              console.log('✅ Post created:', result);
-              alert('✅ Post created! (Client-side)');
-              // Clear the form fields
+              console.log('✅ Post created!');
               document.getElementById('post-title').value = '';
               document.getElementById('post-content').value = '';
             } catch (error) {
-              console.error('❌ Error creating post:', error);
-              alert('Error creating post: ' + error.message);
+              console.error('Error creating post: ' + error.message);
             }
           };
           
-          // Add client-side login
+          // Authentication functions
           window.loginClient = async (email, password) => {
             try {
-              console.log('🔑 Logging in via client:', email);
-              const result = await client.login(email, password);
-              console.log('✅ Login successful:', result);
-              location.reload(); // Refresh to show logged in state
+              await client.login(email, password);
+              location.reload();
             } catch (error) {
-              console.error('❌ Login error:', error);
-              alert('Login error: ' + error.message);
+              console.error('Login error: ' + error.message);
             }
           };
           
-          // Add client-side signup
           window.signupClient = async (email, password) => {
             try {
-              console.log('📝 Signing up via client:', email);
-              const result = await client.signup(email, password);
-              console.log('✅ Signup successful:', result);
-              location.reload(); // Refresh to show logged in state
+              await client.signup(email, password);
+              location.reload();
             } catch (error) {
-              console.error('❌ Signup error:', error);
-              alert('Signup error: ' + error.message);
+              console.error('Signup error: ' + error.message);
             }
           };
           
-          // Add client-side logout
           window.logoutClient = async () => {
             try {
-              console.log('🚪 Logging out via client');
               await client.logout();
-              console.log('✅ Logout successful');
-              location.reload(); // Refresh to show logged out state
+              location.reload();
             } catch (error) {
-              console.error('❌ Logout error:', error);
-              alert('Logout error: ' + error.message);
+              console.error('Logout error: ' + error.message);
             }
           };
           
-          // Add client-side KV data operations using built-in client methods
+          // Client-side data operations
           window.setDataClient = async (key, value) => {
             try {
-              console.log('💾 Setting data via client:', { key, value });
               await client.set(key, value);
-              console.log('✅ Data set successfully');
-              alert('✅ Data saved! (Client-side)');
-              // Clear the input field
+              console.log('✅ Data saved!');
               document.getElementById('data-value').value = '';
             } catch (error) {
-              console.error('❌ Error setting data:', error);
-              alert('Error setting data: ' + error.message);
+              console.error('Error setting data: ' + error.message);
             }
           };
           
-          // Real-time onChange demos
-          window.watchPosts = () => {
-            console.log('👀 Watching posts for changes...');
-            const posts = client.collection('posts');
-            const unsubscribe = posts.onChange((change) => {
-              console.log('🔥 Post change detected:', change);
-              alert('⚡ Real-time: Post ' + change.type + '! Title: ' + (change.data?.title || change.data?.id));
-            });
-            
-            window.unwatchPosts = unsubscribe;
-            alert('✅ Now watching posts! Try creating a post.');
-          };
-          
-          window.watchData = () => {
-            console.log('👀 Watching data key for changes...');
-            const unsubscribe = client.onChange('data', (change) => {
-              console.log('🔥 Data change detected:', change);
-              alert('⚡ Real-time: Data updated! New value: ' + change.value);
-            });
-            
-            window.unwatchData = unsubscribe;
-            alert('✅ Now watching data key! Try updating data.');
-          };
+          // Auto-enable real-time updates (invisible)
+          client.onChange('data', (change) => {
+            console.log('🔥 Data change detected:', change);
+            // Update the stored data display in real-time
+            const storedDataEl = document.getElementById('stored-data');
+            if (storedDataEl) {
+              storedDataEl.textContent = JSON.stringify(change.value, null, 2);
+            }
+          });
 
-          // Debug function
-          window.debugUserDO = () => {
-            console.log('🔍 UserDO Client Debug Info:');
-            console.log('- Client instance:', client);
-            console.log('- Current user:', client.user);
-            console.log('- WebSocket:', client.ws);
-            console.log('- Change listeners:', client.changeListeners);
-          };
+          // Auto-watch posts for changes and refresh the page to show updates
+          const posts = client.collection('posts');
+          posts.onChange((change) => {
+            console.log('🔥 Posts change detected:', change);
+            // Refresh the page to show updated posts list
+          });
           `
         }}></script>
       </head>
@@ -356,24 +320,7 @@ userDOWorker.get('/', async (c) => {
           </form>
           <a href="/protected/profile">View Profile (protected)</a><br /><br />
 
-          {/* Real-time onChange Demo */}
-          <fieldset>
-            <legend><h2>⚡ Real-time onChange</h2></legend>
-            <div class="feature-highlight">
-              <p><strong>True real-time with WebSockets!</strong></p>
-              <p>Watch for changes to posts or data and get instant notifications.</p>
-            </div>
 
-            <button type="button" onclick="watchPosts()" style="background: #28a745; color: white; border: none; padding: 10px 15px; border-radius: 5px; margin-right: 10px;">
-              Watch Posts
-            </button>
-
-            <button type="button" onclick="watchData()" style="background: #17a2b8; color: white; border: none; padding: 10px 15px; border-radius: 5px; margin-right: 10px;">
-              Watch Data
-            </button>
-
-            <p><em>Once enabled, you'll get real-time alerts when data changes!</em></p>
-          </fieldset>
 
           <details>
             <summary>User Info</summary>
@@ -394,12 +341,10 @@ userDOWorker.get('/', async (c) => {
                 Set Data (Client)
               </button>
 
-              {data && (
-                <details>
-                  <summary>Stored Data</summary>
-                  <pre>{JSON.stringify(data, null, 2)}</pre>
-                </details>
-              )}
+              <details open>
+                <summary>Stored Data</summary>
+                <pre id="stored-data">{data ? JSON.stringify(data, null, 2) : 'No data stored'}</pre>
+              </details>
             </fieldset>
           </form>
 
@@ -457,4 +402,15 @@ userDOWorker.get('/', async (c) => {
   )
 })
 
-export default userDOWorker
+// Export worker that handles both HTTP and WebSocket requests
+export default {
+  async fetch(request: Request, env: any, ctx: any): Promise<Response> {
+    // Handle WebSocket upgrades
+    if (request.headers.get('upgrade') === 'websocket') {
+      return webSocketHandler.fetch(request, env, ctx);
+    }
+
+    // Handle all other requests through Hono
+    return userDOWorker.fetch(request, env, ctx);
+  }
+}

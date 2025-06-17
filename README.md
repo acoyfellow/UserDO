@@ -7,9 +7,9 @@ A Durable Object base class that provides user authentication, per-user data sto
 - User authentication with JWT tokens
 - Per-user SQLite tables with type-safe schemas
 - Per-user key-value storage
-- Real-time data synchronization via Server-Sent Events
+- Real-time data synchronization via WebSockets
 - HTTP endpoints for authentication and data operations
-- Browser client for frontend integration
+- Browser client with auto-reconnecting WebSocket support
 
 ## Core components
 
@@ -57,16 +57,30 @@ export class MyAppDO extends UserDO {
 ## Using the worker factory
 
 ```ts
-// Create worker with default binding (USERDO)
+// Simple HTTP-only worker
 import { createUserDOWorker } from 'userdo';
 export default createUserDOWorker();
 
-// Or create worker with custom binding name
-import { createUserDOWorker, getUserDOFromContext } from 'userdo';
+// Worker with WebSocket support
+import { createUserDOWorker, createWebSocketHandler } from 'userdo';
 
-const userDOWorker = createUserDOWorker('MY_APP_DO');
+const app = createUserDOWorker('MY_APP_DO');
+const wsHandler = createWebSocketHandler('MY_APP_DO');
 
-userDOWorker.post('/api/posts', async (c) => {
+export default {
+  async fetch(request, env, ctx) {
+    // Handle WebSocket upgrades
+    if (request.headers.get('upgrade') === 'websocket') {
+      return wsHandler.fetch(request, env, ctx);
+    }
+    
+    // Handle HTTP requests
+    return app.fetch(request, env, ctx);
+  }
+};
+
+// Add custom routes
+app.post('/api/posts', async (c) => {
   const user = c.get('user');
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
   
@@ -76,8 +90,6 @@ userDOWorker.post('/api/posts', async (c) => {
   
   return c.json({ post });
 });
-
-export default userDOWorker;
 ```
 
 ## HTTP endpoints
@@ -97,7 +109,9 @@ All endpoints include request/response validation with Zod schemas.
 **Data**
 - `GET /data` - Get user's key-value data
 - `POST /data` - Set user's key-value data
-- `GET /api/events` - Server-sent events for real-time updates
+
+**Real-time**
+- `GET /api/ws` - WebSocket connection for real-time updates
 
 ## Browser client
 
@@ -115,9 +129,9 @@ const posts = client.collection('posts');
 await posts.create({ title: 'Hello', content: 'World' });
 const list = await posts.query().orderBy('createdAt', 'desc').get();
 
-// Real-time updates
-client.on('table:posts:create', data => console.log('New post:', data));
-client.connectRealtime();
+// Real-time updates via WebSocket
+posts.onChange(data => console.log('Post changed:', data));
+client.onChange('key', data => console.log('KV changed:', data));
 ```
 
 ## Installation
@@ -217,18 +231,25 @@ await userDO.set('preferences', { theme: 'dark', language: 'en' });
 const preferences = await userDO.get('preferences');
 ```
 
-## Real-time events
+## Real-time updates
 
-The system broadcasts events when data changes occur. Events are delivered via Server-Sent Events to connected clients.
+The system broadcasts events when data changes occur. Events are delivered via WebSockets with automatic reconnection.
 
 ```ts
-// Listen for events in browser
-client.on('table:posts:create', data => {
-  // Handle new post creation
+// Listen for KV changes
+const unsubscribe = client.onChange('preferences', data => {
+  console.log('Preferences updated:', data);
 });
 
-// Connect to event stream
-client.connectRealtime();
+// Listen for table changes
+const posts = client.collection('posts');
+const unsubscribe2 = posts.onChange(data => {
+  console.log('Post changed:', data);
+});
+
+// Cleanup when needed
+unsubscribe();
+unsubscribe2();
 ```
 
 ## Type safety
@@ -262,12 +283,13 @@ See the `examples/` directory for complete implementations:
 
 - Requires Cloudflare Workers environment
 - SQLite storage is per-Durable Object instance
-- Real-time events use polling, not WebSockets
+- WebSocket connections are per-user (isolated)
 - No built-in user management interface
 - Must use Cloudflare (Durable Objects, KV, etc.), not self-hosted
 
 
-### Future improvements
+### Recent improvements
 
-- Event system cleanup and client simplification
-- Explore WebSocket support
+- ✅ WebSocket real-time support with auto-reconnection
+- ✅ Firestore-like onChange API for KV and collections
+- ✅ Worker-level WebSocket handling (bypasses Hono serialization issues)

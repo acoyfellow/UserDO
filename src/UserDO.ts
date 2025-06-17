@@ -125,7 +125,6 @@ export class UserDO extends DurableObject {
   protected storage: DurableObjectStorage;
   protected env: Env;
   protected database: UserDODatabase;
-  private webSockets = new Set<WebSocket>();
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
@@ -473,53 +472,43 @@ export class UserDO extends DurableObject {
     return this.state.id.toString();
   }
 
-  // WebSocket connection handling
-  async handleWebSocket(request: Request): Promise<Response> {
-    const upgradeHeader = request.headers.get('Upgrade');
-    if (!upgradeHeader || upgradeHeader !== 'websocket') {
-      return new Response('Expected Upgrade: websocket', { status: 426 });
+  // WebSocket connection handling using Hibernation API
+  async acceptWebSocket(webSocket: WebSocket): Promise<void> {
+    // Use hibernation API to accept the WebSocket
+    this.ctx.acceptWebSocket(webSocket);
+  }
+
+  // WebSocket message handler (called by runtime when hibernated)
+  async webSocketMessage(ws: WebSocket, message: ArrayBuffer | string) {
+    try {
+      const data = typeof message === 'string' ? message : new TextDecoder().decode(message);
+      const parsed = JSON.parse(data);
+      console.log('WebSocket message received:', parsed);
+    } catch (error) {
+      console.error('WebSocket message error:', error);
     }
-
-    const webSocketPair = new WebSocketPair();
-    const [client, server] = Object.values(webSocketPair);
-
-    this.webSockets.add(server);
-
-    server.accept();
-    server.addEventListener('close', () => {
-      this.webSockets.delete(server);
-    });
-
-    server.addEventListener('message', (event) => {
-      try {
-        const message = JSON.parse(event.data as string);
-        this.handleWebSocketMessage(server, message);
-      } catch (error) {
-        console.error('WebSocket message error:', error);
-      }
-    });
-
-    return new Response(null, {
-      status: 101,
-      webSocket: client,
-    });
   }
 
-  private handleWebSocketMessage(ws: WebSocket, message: any) {
-    // Handle incoming WebSocket messages (for future use)
-    console.log('WebSocket message:', message);
+  // WebSocket close handler (called by runtime when hibernated)
+  async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
+    console.log('WebSocket closed:', { code, reason, wasClean });
   }
 
-  // Broadcast to all connected WebSocket clients
+
+
+  // Broadcast to all connected WebSocket clients using hibernation API
   protected broadcast(event: string, data: any): void {
     const message = JSON.stringify({ event, data, timestamp: Date.now() });
 
-    for (const ws of this.webSockets) {
+    // Use hibernation API to get all connected WebSockets
+    const webSockets = this.ctx.getWebSockets();
+
+    for (const ws of webSockets) {
       try {
         ws.send(message);
       } catch (error) {
-        // Remove broken connections
-        this.webSockets.delete(ws);
+        console.error('Broadcast error:', error);
+        // WebSocket will be automatically cleaned up by runtime
       }
     }
   }

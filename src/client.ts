@@ -1,3 +1,5 @@
+import ReconnectingWebSocket from 'reconnecting-websocket';
+
 export interface AuthResponse {
   user: { id: string; email: string };
   token: string;
@@ -9,10 +11,8 @@ type ChangeListener = (data: any) => void;
 class UserDOClient {
   private user: { id: string; email: string } | null = null;
   private authListeners = new Set<(user: { id: string; email: string } | null) => void>();
-  private ws: WebSocket | null = null;
-  private wsReconnectTimer: any = null;
+  private ws: ReconnectingWebSocket | null = null;
   private changeListeners = new Map<string, Set<ChangeListener>>();
-  private isConnecting = false;
 
   constructor(private baseUrl: string) {
     this.checkAuthStatus();
@@ -25,30 +25,42 @@ class UserDOClient {
   }
 
   private async checkAuthStatus() {
+    console.log('🔍 Checking auth status...');
+
     try {
       // Check if we're authenticated via cookies (same mechanism as server)
-      const res = await fetch(`${this.baseUrl}/me`, {
+      const url = `${this.baseUrl}/me`;
+      console.log('🔍 Fetching auth status from:', url);
+
+      const res = await fetch(url, {
         credentials: 'include' // Ensure cookies are sent
       });
+
+      console.log('🔍 Auth response status:', res.status);
+
       if (res.ok) {
         const data = await res.json() as { user: { id: string; email: string } };
+        console.log('🔍 Auth response data:', data);
         this.user = data.user;
       } else {
+        const errorText = await res.text();
+        console.log('🔍 Auth failed, response:', errorText);
         this.user = null;
       }
-    } catch {
+    } catch (error) {
+      console.error('🔍 Auth check error:', error);
       this.user = null;
     }
+
+    console.log('🔍 Final auth state:', this.user);
     this.emitAuthChange();
   }
 
   private emitAuthChange() {
     this.authListeners.forEach((l) => l(this.user));
 
-    console.log('🔐 Auth state changed, checking WebSocket connection...', {
-      user: this.user,
-      hasWs: !!this.ws,
-      isConnecting: this.isConnecting
+    console.log('🔐 Auth state changed:', {
+      user: this.user ? this.user.email : 'none'
     });
 
     // Connect/disconnect WebSocket based on auth state
@@ -58,76 +70,44 @@ class UserDOClient {
     } else if (!this.user && this.ws) {
       console.log('🔌 Disconnecting WebSocket (user logged out)...');
       this.disconnectWebSocket();
-    } else if (this.user && this.ws) {
-      console.log('🔌 WebSocket already connected');
-    } else {
-      console.log('🔌 No user, no WebSocket connection needed');
     }
   }
 
   private connectWebSocket() {
-    if (this.isConnecting || this.ws) return;
-
-    this.isConnecting = true;
+    if (this.ws) return;
 
     // Build WebSocket URL from current page origin
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}${this.baseUrl}/ws`;
 
-    console.log('🔌 Attempting WebSocket connection to:', wsUrl);
+    console.log('🔌 Connecting to WebSocket:', wsUrl);
 
-    try {
-      this.ws = new WebSocket(wsUrl);
+    // Use ReconnectingWebSocket for automatic reconnection
+    this.ws = new ReconnectingWebSocket(wsUrl);
 
-      this.ws.onopen = () => {
-        console.log('🔌 WebSocket connected');
-        this.isConnecting = false;
-        if (this.wsReconnectTimer) {
-          clearTimeout(this.wsReconnectTimer);
-          this.wsReconnectTimer = null;
-        }
-      };
+    this.ws.onopen = () => {
+      console.log('🔌 WebSocket connected');
+    };
 
-      this.ws.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-          this.handleRealtimeMessage(message);
-        } catch (error) {
-          console.error('WebSocket message error:', error);
-        }
-      };
+    this.ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        this.handleRealtimeMessage(message);
+      } catch (error) {
+        console.error('WebSocket message error:', error);
+      }
+    };
 
-      this.ws.onclose = () => {
-        console.log('🔌 WebSocket disconnected');
-        this.ws = null;
-        this.isConnecting = false;
+    this.ws.onclose = () => {
+      console.log('🔌 WebSocket disconnected');
+    };
 
-        // Auto-reconnect if user is still authenticated
-        if (this.user && !this.wsReconnectTimer) {
-          this.wsReconnectTimer = setTimeout(() => {
-            this.wsReconnectTimer = null;
-            this.connectWebSocket();
-          }, 3000); // Reconnect after 3 seconds
-        }
-      };
-
-      this.ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        this.isConnecting = false;
-      };
-
-    } catch (error) {
-      console.error('WebSocket connection error:', error);
-      this.isConnecting = false;
-    }
+    this.ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
   }
 
   private disconnectWebSocket() {
-    if (this.wsReconnectTimer) {
-      clearTimeout(this.wsReconnectTimer);
-      this.wsReconnectTimer = null;
-    }
-
     if (this.ws) {
       this.ws.close();
       this.ws = null;
@@ -226,6 +206,8 @@ class UserDOClient {
     }
     this.changeListeners.get(eventKey)!.add(listener);
 
+    console.log(`🔌 Watching KV key: ${key}`);
+
     // Return unsubscribe function
     return () => {
       const listeners = this.changeListeners.get(eventKey);
@@ -235,6 +217,7 @@ class UserDOClient {
           this.changeListeners.delete(eventKey);
         }
       }
+      console.log(`🔌 Stopped watching KV key: ${key}`);
     };
   }
 
@@ -285,6 +268,8 @@ class UserDOClient {
         }
         client.changeListeners.get(eventKey)!.add(listener);
 
+        console.log(`🔌 Watching collection: ${name}`);
+
         // Return unsubscribe function
         return () => {
           const listeners = client.changeListeners.get(eventKey);
@@ -294,6 +279,7 @@ class UserDOClient {
               client.changeListeners.delete(eventKey);
             }
           }
+          console.log(`🔌 Stopped watching collection: ${name}`);
         };
       },
       query() {
