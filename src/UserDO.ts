@@ -466,9 +466,10 @@ export class UserDO extends DurableObject {
   }
 
   protected broadcast(event: string, data: any): void {
-    // Store event for SSE streaming
+    // Store event for SSE streaming.
+    // Fire-and-forget so callers aren't blocked waiting for persistence.
     const eventData = { event, data, timestamp: Date.now() };
-    this.storage.put(`__event_${Date.now()}_${Math.random()}`, eventData);
+    void this.storage.put(`__event_${Date.now()}_${Math.random()}`, eventData);
   }
 
   async getEvents(since?: number): Promise<Array<{ event: string; data: any; timestamp: number }>> {
