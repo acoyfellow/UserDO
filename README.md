@@ -2,23 +2,25 @@
 
 A Durable Object base class that provides user authentication, per-user data storage, and real-time updates for Cloudflare Workers applications.
 
-## What it provides
+## Features
 
-- User authentication with JWT tokens
-- Per-user SQLite tables with type-safe schemas
-- Per-user key-value storage
-- Real-time data synchronization via WebSockets
-- HTTP endpoints for authentication and data operations
-- Browser client with auto-reconnecting WebSocket support
+- **Authentication**: JWT-based user auth with signup, login, logout, and password reset
+- **Database Tables**: Type-safe SQLite tables with Zod schemas and query builder
+- **Key-Value Storage**: Per-user KV storage with automatic broadcasting
+- **Real-time Updates**: WebSocket connections with hibernation API support
+- **Worker Factory**: Pre-built Hono server with configurable binding names
+- **Browser Client**: Auto-reconnecting WebSocket client with change listeners
 
-## Core components
+## Core Components
 
-- **UserDO class**: Extend this to add your application logic
-- **Worker**: Pre-built Hono server with authentication endpoints
-- **Client**: Browser library for API calls and real-time subscriptions
-- **Database**: Type-safe tables with query builder
+- **UserDO**: Extend this class to add your business logic
+- **createUserDOWorker()**: Creates a Hono server with auth endpoints
+- **createWebSocketHandler()**: Handles WebSocket upgrades separately
+- **UserDOClient**: Browser client for API calls and real-time subscriptions
 
-## Basic usage
+## Quick Start
+
+### 1. Define Your Schema
 
 ```ts
 import { UserDO, type Env, type Table } from "userdo";
@@ -31,7 +33,11 @@ const PostSchema = z.object({
 });
 
 type Post = z.infer<typeof PostSchema>;
+```
 
+### 2. Extend UserDO
+
+```ts
 export class MyAppDO extends UserDO {
   posts: Table<Post>;
 
@@ -54,30 +60,14 @@ export class MyAppDO extends UserDO {
 }
 ```
 
-## Using the worker factory
+### 3. Create Your Worker
 
 ```ts
-// Simple HTTP-only worker
-import { createUserDOWorker } from 'userdo';
-export default createUserDOWorker();
+import { createUserDOWorker, createWebSocketHandler, getUserDOFromContext } from 'userdo';
 
-// Worker with WebSocket support
-import { createUserDOWorker, createWebSocketHandler } from 'userdo';
-
+// Create worker with custom binding name
 const app = createUserDOWorker('MY_APP_DO');
 const wsHandler = createWebSocketHandler('MY_APP_DO');
-
-export default {
-  async fetch(request, env, ctx) {
-    // Handle WebSocket upgrades
-    if (request.headers.get('upgrade') === 'websocket') {
-      return wsHandler.fetch(request, env, ctx);
-    }
-    
-    // Handle HTTP requests
-    return app.fetch(request, env, ctx);
-  }
-};
 
 // Add custom routes
 app.post('/api/posts', async (c) => {
@@ -90,30 +80,38 @@ app.post('/api/posts', async (c) => {
   
   return c.json({ post });
 });
+
+// Export worker with WebSocket support
+export default {
+  async fetch(request: Request, env: any, ctx: any): Promise<Response> {
+    if (request.headers.get('upgrade') === 'websocket') {
+      return wsHandler.fetch(request, env, ctx);
+    }
+    return app.fetch(request, env, ctx);
+  }
+};
 ```
 
-## HTTP endpoints
+## Built-in API Endpoints
 
-All endpoints include request/response validation with Zod schemas.
-
-**Authentication**
+### Authentication
 - `POST /api/signup` - Create user account
 - `POST /api/login` - Authenticate user
 - `POST /api/logout` - End user session
 - `GET /api/me` - Get current user info
 
-**Password reset**
+### Password Reset
 - `POST /api/password-reset/request` - Generate reset token
 - `POST /api/password-reset/confirm` - Reset password with token
 
-**Data**
+### Data Operations
 - `GET /data` - Get user's key-value data
 - `POST /data` - Set user's key-value data
 
-**Real-time**
-- `GET /api/ws` - WebSocket connection for real-time updates
+### Real-time
+- `GET /api/ws` - WebSocket connection for live updates
 
-## Browser client
+## Browser Client
 
 ```ts
 import { UserDOClient } from 'userdo';
@@ -124,137 +122,133 @@ const client = new UserDOClient('/api');
 await client.signup('user@example.com', 'password');
 await client.login('user@example.com', 'password');
 
-// Data operations
+// Key-value operations
+await client.set('preferences', { theme: 'dark' });
+const prefs = await client.get('preferences');
+
+// Watch for changes
+const unsubscribe = client.onChange('preferences', data => {
+  console.log('Preferences updated:', data);
+});
+
+// Collections (if you have custom endpoints)
 const posts = client.collection('posts');
 await posts.create({ title: 'Hello', content: 'World' });
-const list = await posts.query().orderBy('createdAt', 'desc').get();
+```
 
-// Real-time updates via WebSocket
+## Database Operations
+
+### Table Creation
+```ts
+// In your UserDO constructor
+this.posts = this.table('posts', PostSchema, { userScoped: true });
+```
+
+### CRUD Operations
+```ts
+// Create
+const post = await this.posts.create({ title, content, createdAt });
+
+// Read
+const post = await this.posts.findById(id);
+const posts = await this.posts.get();
+
+// Update
+const updated = await this.posts.update(id, { title: 'New Title' });
+
+// Delete
+await this.posts.delete(id);
+```
+
+### Queries
+```ts
+// Filter and sort
+const posts = await this.posts
+  .where('title', '==', 'Hello')
+  .orderBy('createdAt', 'desc')
+  .limit(10)
+  .get();
+
+// Count
+const count = await this.posts.count();
+```
+
+## Real-time Events
+
+Data changes automatically broadcast WebSocket events:
+
+- `kv:{key}` - When key-value data changes
+- `table:{tableName}` - When table data changes (create/update/delete)
+
+```ts
+// Listen for specific events
+client.onChange('preferences', data => console.log('Prefs changed:', data));
+
+// Listen for table changes
+const posts = client.collection('posts');
 posts.onChange(data => console.log('Post changed:', data));
-client.onChange('key', data => console.log('KV changed:', data));
 ```
 
-## Installation
+## Multiple Projects
 
-```bash
-npm install userdo
-```
-
-## Multiple projects
-
-You can use UserDO in multiple projects without conflicts by using different binding names:
+Use different binding names to isolate projects:
 
 ```ts
 // Project 1: Blog
 const blogWorker = createUserDOWorker('BLOG_DO');
 
-// Project 2: E-commerce
+// Project 2: Shop
 const shopWorker = createUserDOWorker('SHOP_DO');
 
-// Project 3: Default binding
+// Default binding
 const defaultWorker = createUserDOWorker(); // Uses 'USERDO'
 ```
 
-Each project will have completely isolated user data and can be deployed to the same Cloudflare account.
+## Configuration
 
-## Wrangler configuration
-
+### wrangler.jsonc
 ```jsonc
 {
   "main": "src/index.ts",
   "vars": {
-    "JWT_SECRET": "your-jwt-secret"
+    "JWT_SECRET": "your-jwt-secret-here"
   },
   "durable_objects": {
     "bindings": [
       {
-        "name": "USERDO", // or any custom name like "MY_APP_DO"
-        "class_name": "UserDO" // or your extended class like "MyAppDO"
+        "name": "MY_APP_DO",
+        "class_name": "MyAppDO"
       }
     ]
   }
 }
 ```
 
+### Environment Variables
+- `JWT_SECRET` (required) - Secret for signing JWT tokens
 
-## Authentication methods
+## Authentication Methods
 
 ```ts
-// Create account
-const { user, token, refreshToken } = await userDO.signup({ email, password });
+// All methods return { user, token, refreshToken }
+await userDO.signup({ email, password });
+await userDO.login({ email, password });
 
-// Sign in
-const { user, token, refreshToken } = await userDO.login({ email, password });
+// Token operations
+await userDO.verifyToken({ token });
+await userDO.refreshToken({ refreshToken });
 
-// Verify token
-const result = await userDO.verifyToken({ token });
-
-// Refresh token
-const { token: newToken } = await userDO.refreshToken({ refreshToken });
-
-// Change password
+// Password management
 await userDO.changePassword({ oldPassword, newPassword });
-
-// Reset password
 await userDO.resetPassword({ newPassword });
 
-// End session
+// Session management
 await userDO.logout();
 ```
 
-## Database operations
+## Type Safety
 
-```ts
-// All operations are fully typed with your schema
-await this.posts.create({ 
-  title: 'Hello', 
-  content: 'World', 
-  createdAt: new Date().toISOString() 
-});
-await this.posts.findById(id);
-await this.posts.update(id, { title: 'Updated' });
-await this.posts.delete(id);
-
-// Queries
-await this.posts.where('title', '==', 'Hello').get();
-await this.posts.orderBy('createdAt', 'desc').limit(10).get();
-await this.posts.count();
-```
-
-## Key-value storage
-
-```ts
-// Store data
-await userDO.set('preferences', { theme: 'dark', language: 'en' });
-
-// Retrieve data
-const preferences = await userDO.get('preferences');
-```
-
-## Real-time updates
-
-The system broadcasts events when data changes occur. Events are delivered via WebSockets with automatic reconnection.
-
-```ts
-// Listen for KV changes
-const unsubscribe = client.onChange('preferences', data => {
-  console.log('Preferences updated:', data);
-});
-
-// Listen for table changes
-const posts = client.collection('posts');
-const unsubscribe2 = posts.onChange(data => {
-  console.log('Post changed:', data);
-});
-
-// Cleanup when needed
-unsubscribe();
-unsubscribe2();
-```
-
-## Type safety
-
-All endpoints are fully typed with TypeScript and validated with Zod schemas.
+All endpoints are typed with TypeScript and validated with Zod:
 
 ```ts
 import type { UserDOEndpoints, EndpointRequest, EndpointResponse } from 'userdo';
@@ -263,33 +257,48 @@ type SignupRequest = EndpointRequest<'POST /api/signup'>;
 type SignupResponse = EndpointResponse<'POST /api/signup'>;
 ```
 
+## Installation
+
+```bash
+npm install userdo
+```
+
 ## Examples
 
-See the `examples/` directory for complete implementations:
-- [`examples/hono`](examples/hono) - Full Hono integration
+Complete working examples:
+- [`examples/hono`](examples/hono) - Full-featured Hono integration
 - [`examples/alchemy`](examples/alchemy) - Alchemy.run deployment
 - [`examples/effect`](examples/effect) - Effect library integration
-- [`examples/multi-tenant`](examples/multi-tenant) - Multi-tenant SaaS pattern
+- [`examples/multi-tenant`](examples/multi-tenant) - Multi-tenant patterns
 
-## Security features
+## Architecture
 
-- Email addresses are hashed for Durable Object IDs
-- Passwords use PBKDF2 with WebCrypto
+- **Per-user isolation**: Each user gets their own Durable Object instance
+- **Email-based routing**: User emails are hashed to generate Durable Object IDs
+- **WebSocket hibernation**: Uses Cloudflare's hibernation API for efficient WebSocket handling
+- **Type-safe schemas**: Zod validation for all data operations
+- **Automatic broadcasting**: Real-time events for all data changes
+
+## Security
+
+- PBKDF2 password hashing with WebCrypto
 - JWT tokens with configurable expiration
+- HTTP-only cookies for token storage
+- Per-user data isolation by default
 - Rate limiting on authentication endpoints
-- User data isolation by default
 
 ## Limitations
 
 - Requires Cloudflare Workers environment
 - SQLite storage is per-Durable Object instance
-- WebSocket connections are per-user (isolated)
-- No built-in user management interface
-- Must use Cloudflare (Durable Objects, KV, etc.), not self-hosted
+- WebSocket connections are limited by Durable Object hibernation limits
+- No built-in admin interface
+- Cannot be self-hosted (requires Cloudflare infrastructure)
 
+## Recent Updates
 
-### Recent improvements
-
-- ✅ WebSocket real-time support with auto-reconnection
-- ✅ Firestore-like onChange API for KV and collections
-- ✅ Worker-level WebSocket handling (bypasses Hono serialization issues)
+- ✅ WebSocket hibernation API support
+- ✅ Configurable Durable Object binding names
+- ✅ Auto-reconnecting browser client
+- ✅ Real-time change listeners for KV and tables
+- ✅ Separate WebSocket handler to avoid Hono serialization issues
