@@ -361,7 +361,9 @@ export class UserDO extends DurableObject {
 
       const user = await this.storage.get<User>(AUTH_DATA_KEY);
       if (!user) throw new Error('User not found');
-      // Todo? can also check if payload.sub === user.id, etc.
+      if (payload.sub !== user.id) {
+        throw new Error('Token subject mismatch');
+      }
       return { ok: true, user: { id: user.id, email: user.email } };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };

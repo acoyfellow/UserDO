@@ -73,5 +73,6 @@
     "release:major": "npm version major && npm publish",
     "patch": "bun run cf-typegen && bun run check && bun run release:patch"
   },
-  "types": "dist/src/index.d.ts"
+  "types": "dist/src/index.d.ts",
+  "license": "MIT"
 }

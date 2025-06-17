@@ -136,6 +136,7 @@ npm install userdo
 }
 ```
 
+
 ## Authentication methods
 
 ```ts
@@ -238,7 +239,7 @@ See the `examples/` directory for complete implementations:
 - Must use Cloudflare (Durable Objects, KV, etc.), not self-hosted
 
 
-TODO:
-- event system cleanup
-- client cleanup
-- websocket system?
+### Future improvements
+
+- Event system cleanup and client simplification
+- Explore WebSocket support

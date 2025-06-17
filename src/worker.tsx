@@ -19,6 +19,8 @@ type User = {
   email: string;
 }
 
+const isRequestSecure = (c: Context) => new URL(c.req.url).protocol === 'https:';
+
 const getInternalUserDO = (c: Context, email: string) => {
   const userDOID = c.env.USERDO.idFromName(email);
   return c.env.USERDO.get(userDOID) as unknown as UserDO;
@@ -55,7 +57,7 @@ app.use('/*', async (c, next) => {
         if (!refreshResult.token) return c.json({ error: 'Unauthorized' }, 401);
         setCookie(c, 'token', refreshResult.token, {
           httpOnly: true,
-          secure: false, // Allow HTTP for localhost
+          secure: isRequestSecure(c),
           path: '/',
           sameSite: 'Lax'
         });
@@ -86,13 +88,13 @@ app.post('/api/signup', async (c): Promise<Response> => {
 
     setCookie(c, 'token', token, {
       httpOnly: true,
-      secure: false, // Allow HTTP for localhost
+      secure: isRequestSecure(c),
       path: '/',
       sameSite: 'Lax'
     });
     setCookie(c, 'refreshToken', refreshToken, {
       httpOnly: true,
-      secure: false, // Allow HTTP for localhost
+      secure: isRequestSecure(c),
       path: '/',
       sameSite: 'Lax'
     });
@@ -115,13 +117,13 @@ app.post('/api/login', async (c): Promise<Response> => {
 
     setCookie(c, 'token', token, {
       httpOnly: true,
-      secure: false, // Allow HTTP for localhost
+      secure: isRequestSecure(c),
       path: '/',
       sameSite: 'Lax'
     });
     setCookie(c, 'refreshToken', refreshToken, {
       httpOnly: true,
-      secure: false, // Allow HTTP for localhost
+      secure: isRequestSecure(c),
       path: '/',
       sameSite: 'Lax'
     });
@@ -237,13 +239,13 @@ app.post('/signup', async (c) => {
     const { user, token, refreshToken } = await userDO.signup({ email, password })
     setCookie(c, 'token', token, {
       httpOnly: true,
-      secure: true,
+      secure: isRequestSecure(c),
       path: '/',
       sameSite: 'Strict'
     })
     setCookie(c, 'refreshToken', refreshToken, {
       httpOnly: true,
-      secure: true,
+      secure: isRequestSecure(c),
       path: '/',
       sameSite: 'Strict'
     })
@@ -265,13 +267,13 @@ app.post('/login', async (c) => {
     const { user, token, refreshToken } = await userDO.login({ email, password })
     setCookie(c, 'token', token, {
       httpOnly: true,
-      secure: true,
+      secure: isRequestSecure(c),
       path: '/',
       sameSite: 'Strict'
     })
     setCookie(c, 'refreshToken', refreshToken, {
       httpOnly: true,
-      secure: true,
+      secure: isRequestSecure(c),
       path: '/',
       sameSite: 'Strict'
     })
