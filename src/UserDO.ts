@@ -156,6 +156,30 @@ export class UserDO extends DurableObject {
     }
   }
 
+  private async generateTokens(user: User): Promise<{ token: string; refreshToken: string }> {
+    const accessExp = Math.floor(Date.now() / 1000) + 15 * 60;
+    const token = await jwt.sign(
+      {
+        sub: user.id,
+        email: user.email,
+        exp: accessExp,
+      },
+      this.env.JWT_SECRET,
+    );
+
+    const refreshExp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
+    const refreshToken = await jwt.sign(
+      {
+        sub: user.id,
+        type: 'refresh',
+        exp: refreshExp,
+      },
+      this.env.JWT_SECRET,
+    );
+
+    return { token, refreshToken };
+  }
+
   async signup(
     { email, password }:
       { email: string; password: string }
@@ -186,21 +210,7 @@ export class UserDO extends DurableObject {
     };
     await this.storage.put(AUTH_DATA_KEY, user);
 
-    // Generate access token (15 minutes)
-    const accessExp = Math.floor(Date.now() / 1000) + 15 * 60;
-    const token = await jwt.sign({
-      sub: user.id,
-      email: user.email,
-      exp: accessExp
-    }, this.env.JWT_SECRET);
-
-    // Generate refresh token (7 days)
-    const refreshExp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
-    const refreshToken = await jwt.sign({
-      sub: user.id,
-      type: 'refresh',
-      exp: refreshExp
-    }, this.env.JWT_SECRET);
+    const { token, refreshToken } = await this.generateTokens(user);
 
     // Store refresh token
     if (!user.refreshTokens) user.refreshTokens = [];
@@ -229,22 +239,7 @@ export class UserDO extends DurableObject {
     const ok = await verifyPassword(password, user.salt, user.passwordHash);
     if (!ok) throw new Error('Invalid credentials');
 
-    // Generate access token (15 minutes)
-    const accessExp = Math.floor(Date.now() / 1000) + 15 * 60;
-    const token = await jwt.sign({
-      sub: user.id,
-      email: user.email,
-      exp: accessExp
-    }, this.env.JWT_SECRET);
-
-
-    // Generate refresh token (7 days)
-    const refreshExp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
-    const refreshToken = await jwt.sign({
-      sub: user.id,
-      type: 'refresh',
-      exp: refreshExp
-    }, this.env.JWT_SECRET);
+    const { token, refreshToken } = await this.generateTokens(user);
 
     // Store refresh token
     if (!user.refreshTokens) user.refreshTokens = [];
