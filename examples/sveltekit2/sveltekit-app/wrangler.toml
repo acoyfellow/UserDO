@@ -1,0 +1,7 @@
+name = "sveltekit-app"
+compatibility_date = "2024-04-05"
+
+[[durable_objects.bindings]]
+name = "BLOG_DO"
+class_name = "BlogDO"
+script_name = "do-worker"

@@ -1,0 +1,31 @@
+{
+  "name": "sveltekit-app",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "npm run build && wrangler pages dev .svelte-kit/cloudflare",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "deploy": "npm run build && wrangler pages deploy .svelte-kit/cloudflare",
+    "build-cf-types": "wrangler types && mv worker-configuration.d.ts src/"
+  },
+  "dependencies": {
+    "userdo": "^0.1.49"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250619.0",
+    "@sveltejs/adapter-auto": "^6.0.1",
+    "@sveltejs/adapter-cloudflare": "^7.0.4",
+    "@sveltejs/kit": "^2.21.5",
+    "@sveltejs/vite-plugin-svelte": "^5.1.0",
+    "svelte": "^5.34.7",
+    "svelte-check": "^4.2.2",
+    "tslib": "^2.8.1",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "wrangler": "^4.20.3"
+  },
+  "type": "module"
+}
