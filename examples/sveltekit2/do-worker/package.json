@@ -1,0 +1,19 @@
+{
+  "name": "do-worker",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "start": "wrangler dev"
+  },
+  "dependencies": {
+    "userdo": "^0.1.49",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250618.0",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.20.2"
+  }
+}

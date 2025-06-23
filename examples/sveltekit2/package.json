@@ -1,0 +1,16 @@
+{
+  "name": "sveltekit-durable-object-example",
+  "version": "1.0.0",
+  "description": "",
+  "workspaces": [
+    "do-worker",
+    "sveltekit-app"
+  ],
+  "main": "index.js",
+  "scripts": {
+    "i": "cd do-worker && bun install && cd ../sveltekit-app && bun install",
+    "dev": "node dev.mjs"
+  },
+  "author": "",
+  "license": "ISC"
+}
