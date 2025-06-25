@@ -14,6 +14,26 @@ const UserSchema = z.object({
 });
 type User = z.infer<typeof UserSchema>;
 
+// --- Organization Schemas ---
+const OrganizationSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1),
+  ownerId: z.string(),
+  createdAt: z.string(),
+});
+
+const OrganizationMemberSchema = z.object({
+  id: z.string(),
+  organizationId: z.string(),
+  userId: z.string(),
+  email: z.string().email(),
+  role: z.enum(['owner', 'admin', 'member']),
+  createdAt: z.string(),
+});
+
+type Organization = z.infer<typeof OrganizationSchema>;
+type OrganizationMember = z.infer<typeof OrganizationMemberSchema>;
+
 // --- Zod Schemas for endpoint validation ---
 const SignupSchema = z.object({
   email: z.string().email(),
@@ -449,6 +469,148 @@ export class UserDO extends DurableObject {
 
   async logout(): Promise<{ ok: boolean }> {
     return this.revokeAllRefreshTokens();
+  }
+
+  // === Organization Management ===
+
+  setOrganizationContext(organizationId?: string): void {
+    this.database.setOrganizationContext(organizationId);
+  }
+
+  async createOrganization(name: string): Promise<{ organization: Organization }> {
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
+    if (!user) throw new Error('User not found');
+
+    const organization: Organization = {
+      id: crypto.randomUUID(),
+      name,
+      ownerId: user.id,
+      createdAt: new Date().toISOString(),
+    };
+
+    // Store organization
+    await this.storage.put(`org:${organization.id}`, organization);
+
+    // Add owner as member
+    const member: OrganizationMember = {
+      id: crypto.randomUUID(),
+      organizationId: organization.id,
+      userId: user.id,
+      email: user.email,
+      role: 'owner',
+      createdAt: new Date().toISOString(),
+    };
+
+    await this.storage.put(`member:${organization.id}:${user.id}`, member);
+
+    this.broadcast('organization:created', { organization });
+
+    return { organization };
+  }
+
+  async getOrganizations(): Promise<{ organizations: Organization[] }> {
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
+    if (!user) throw new Error('User not found');
+
+    // Get all organization memberships for this user
+    const keys = await this.storage.list({ prefix: 'member:' });
+    const organizations: Organization[] = [];
+
+    for (const [key, member] of keys) {
+      if (member && typeof member === 'object' && 'userId' in member && member.userId === user.id) {
+        const orgId = (member as OrganizationMember).organizationId;
+        const org = await this.storage.get<Organization>(`org:${orgId}`);
+        if (org) {
+          organizations.push(org);
+        }
+      }
+    }
+
+    return { organizations };
+  }
+
+  async getOrganization(organizationId: string): Promise<{ organization: Organization; members: OrganizationMember[] }> {
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
+    if (!user) throw new Error('User not found');
+
+    // Check if user is a member
+    const membership = await this.storage.get<OrganizationMember>(`member:${organizationId}:${user.id}`);
+    if (!membership) throw new Error('Not a member of this organization');
+
+    const organization = await this.storage.get<Organization>(`org:${organizationId}`);
+    if (!organization) throw new Error('Organization not found');
+
+    // Get all members
+    const memberKeys = await this.storage.list({ prefix: `member:${organizationId}:` });
+    const members: OrganizationMember[] = [];
+
+    for (const [, member] of memberKeys) {
+      if (member) {
+        members.push(member as OrganizationMember);
+      }
+    }
+
+    return { organization, members };
+  }
+
+  async addOrganizationMember(
+    organizationId: string,
+    email: string,
+    role: 'admin' | 'member' = 'member'
+  ): Promise<{ member: OrganizationMember }> {
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
+    if (!user) throw new Error('User not found');
+
+    // Check if current user is owner or admin
+    const currentMembership = await this.storage.get<OrganizationMember>(`member:${organizationId}:${user.id}`);
+    if (!currentMembership || (currentMembership.role !== 'owner' && currentMembership.role !== 'admin')) {
+      throw new Error('Insufficient permissions to add members');
+    }
+
+    // Get organization
+    const organization = await this.storage.get<Organization>(`org:${organizationId}`);
+    if (!organization) throw new Error('Organization not found');
+
+    // Get target user ID from email (simplified - in real app you'd lookup by email)
+    const targetUserId = await hashEmailForId(email);
+
+    const member: OrganizationMember = {
+      id: crypto.randomUUID(),
+      organizationId,
+      userId: targetUserId,
+      email: email.toLowerCase(),
+      role,
+      createdAt: new Date().toISOString(),
+    };
+
+    await this.storage.put(`member:${organizationId}:${targetUserId}`, member);
+
+    this.broadcast('organization:member_added', { organizationId, member });
+
+    return { member };
+  }
+
+  async removeOrganizationMember(organizationId: string, userId: string): Promise<{ ok: boolean }> {
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
+    if (!user) throw new Error('User not found');
+
+    // Check if current user is owner or admin
+    const currentMembership = await this.storage.get<OrganizationMember>(`member:${organizationId}:${user.id}`);
+    if (!currentMembership || (currentMembership.role !== 'owner' && currentMembership.role !== 'admin')) {
+      throw new Error('Insufficient permissions to remove members');
+    }
+
+    // Can't remove owner
+    const targetMembership = await this.storage.get<OrganizationMember>(`member:${organizationId}:${userId}`);
+    if (targetMembership?.role === 'owner') {
+      throw new Error('Cannot remove organization owner');
+    }
+
+    await this.storage.delete(`member:${organizationId}:${userId}`);
+
+    this.broadcast('organization:member_removed', { organizationId, userId });
+
+    return { ok: true };
   }
 
   public table<T extends z.ZodSchema>(
