@@ -3,12 +3,14 @@ import { GenericTable } from './table';
 
 export interface TableOptions {
   userScoped?: boolean;
+  organizationScoped?: boolean;
   indexes?: string[];
 }
 
 export class UserDODatabase {
   private tables = new Map<string, GenericTable<any>>();
   private schemas = new Map<string, z.ZodSchema>();
+  private currentOrganizationId?: string;
 
   constructor(
     private storage: DurableObjectStorage,
@@ -16,24 +18,45 @@ export class UserDODatabase {
     private broadcast?: (event: string, data: any) => void
   ) { }
 
+  setOrganizationContext(organizationId?: string) {
+    this.currentOrganizationId = organizationId;
+  }
+
   table<T extends z.ZodSchema>(
     name: string,
     schema: T,
     options: TableOptions = {}
   ): GenericTable<z.infer<T>> {
+    // Always use the base table name for storage, but track options
     if (!this.tables.has(name)) {
       this.ensureTableExists(name, options);
+      // Store the table without organization context initially
       const table = new GenericTable<z.infer<T>>(
         name,
         schema,
         this.storage,
         this.currentUserId,
-        this.broadcast
+        this.broadcast,
+        undefined // Don't set organization context during construction
       );
       this.tables.set(name, table);
       this.schemas.set(name, schema);
     }
-    return this.tables.get(name)! as GenericTable<z.infer<T>>;
+
+    // Return a new instance with current organization context if needed
+    const baseTable = this.tables.get(name)!;
+    if (options.organizationScoped && this.currentOrganizationId) {
+      return new GenericTable<z.infer<T>>(
+        name,
+        schema,
+        this.storage,
+        this.currentUserId,
+        this.broadcast,
+        this.currentOrganizationId
+      );
+    }
+
+    return baseTable as GenericTable<z.infer<T>>;
   }
 
   get raw() {
@@ -46,7 +69,8 @@ export class UserDODatabase {
       data TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      user_id TEXT${options.userScoped ? ' NOT NULL' : ''}
+      user_id TEXT${options.userScoped ? ' NOT NULL' : ''},
+      organization_id TEXT${options.organizationScoped ? ' NOT NULL' : ''}
     )`;
 
     try {

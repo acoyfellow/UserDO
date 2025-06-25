@@ -11,8 +11,42 @@ const UserSchema = z.object({
   salt: z.string(),
   createdAt: z.string(),
   refreshTokens: z.array(z.string()).default([]),
+  organizations: z.array(z.string()).default([]), // Array of organization IDs this user owns
 });
 type User = z.infer<typeof UserSchema>;
+
+// --- Organization Schema ---
+const OrganizationSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  ownerId: z.string(), // User ID of the owner
+  createdAt: z.string(),
+  members: z.array(z.object({
+    email: z.string().email(),
+    role: z.enum(['admin', 'member']).default('member'),
+    addedAt: z.string(),
+  })).default([]),
+});
+type Organization = z.infer<typeof OrganizationSchema>;
+
+// --- Organization Member Schema ---
+const OrganizationMemberSchema = z.object({
+  organizationId: z.string(),
+  organizationName: z.string(),
+  role: z.enum(['admin', 'member']),
+  addedAt: z.string(),
+});
+type OrganizationMember = z.infer<typeof OrganizationMemberSchema>;
+
+// --- Organization Invitation Schema ---
+const OrganizationInvitationSchema = z.object({
+  organizationId: z.string(),
+  organizationName: z.string(),
+  inviterEmail: z.string().email(),
+  role: z.enum(['admin', 'member']),
+  addedAt: z.string(),
+});
+type OrganizationInvitation = z.infer<typeof OrganizationInvitationSchema>;
 
 // --- Zod Schemas for endpoint validation ---
 const SignupSchema = z.object({
@@ -33,6 +67,23 @@ const AUTH_DATA_KEY = "__user";
 const RATE_LIMIT_KEY = "__rl";
 const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW = 60_000; // 1 minute
+
+// Organization validation schemas
+const CreateOrganizationSchema = z.object({
+  name: z.string().min(1).max(100),
+});
+
+const AddMemberSchema = z.object({
+  organizationId: z.string(),
+  email: z.string().email(),
+  role: z.enum(['admin', 'member']).default('member'),
+});
+
+const UpdateMemberRoleSchema = z.object({
+  organizationId: z.string(),
+  email: z.string().email(),
+  role: z.enum(['admin', 'member']),
+});
 
 function isReservedKey(key: string): boolean {
   return key.startsWith(RESERVED_PREFIX);
@@ -63,8 +114,8 @@ export async function hashEmailForId(email: string): Promise<string> {
 
 // Helper function to get UserDO with automatic email hashing
 // Maintains almost the same API as env.MY_APP_DO.get(env.MY_APP_DO.idFromName(email))
-export async function getUserDO<T extends UserDO>(
-  namespace: DurableObjectNamespace,
+export async function getUserDO<T extends UserDO = UserDO>(
+  namespace: DurableObjectNamespace<T>,
   email: string
 ): Promise<T> {
   const hashedEmail = await hashEmailForId(email);
@@ -206,7 +257,8 @@ export class UserDO extends DurableObject {
       passwordHash: hash,
       salt,
       createdAt,
-      refreshTokens: []
+      refreshTokens: [],
+      organizations: []
     };
     await this.storage.put(AUTH_DATA_KEY, user);
 
@@ -451,12 +503,282 @@ export class UserDO extends DurableObject {
     return this.revokeAllRefreshTokens();
   }
 
+  // --- Organization Management ---
+
+  async createOrganization(
+    { name }: { name: string }
+  ): Promise<{ organization: Organization }> {
+    const parsed = CreateOrganizationSchema.safeParse({ name });
+    if (!parsed.success) {
+      throw new Error('Invalid input: ' + JSON.stringify(parsed.error.flatten()));
+    }
+
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
+    if (!user) throw new Error('User not found');
+
+    const organizationId = crypto.randomUUID();
+    const now = new Date().toISOString();
+
+    const organization: Organization = {
+      id: organizationId,
+      name: name.trim(),
+      ownerId: user.id,
+      createdAt: now,
+      members: [{
+        email: user.email,
+        role: 'admin',
+        addedAt: now,
+      }],
+    };
+
+    // Store organization
+    await this.storage.put(`org:${organizationId}`, organization);
+
+    // Add to user's organizations list
+    if (!user.organizations) user.organizations = [];
+    user.organizations.push(organizationId);
+    await this.storage.put(AUTH_DATA_KEY, user);
+
+    // Broadcast organization change
+    this.broadcast('organization:created', { organization });
+
+    return { organization };
+  }
+
+  async getOrganizations(): Promise<{ organizations: Organization[] }> {
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
+    if (!user) throw new Error('User not found');
+
+    const organizations: Organization[] = [];
+
+    if (user.organizations) {
+      for (const orgId of user.organizations) {
+        const org = await this.storage.get<Organization>(`org:${orgId}`);
+        if (org) {
+          organizations.push(org);
+        }
+      }
+    }
+
+    return { organizations };
+  }
+
+  async getOrganization(
+    { organizationId }: { organizationId: string }
+  ): Promise<{ organization: Organization }> {
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
+    if (!user) throw new Error('User not found');
+
+    // First check if we have an invitation for this organization
+    const invitation = await this.storage.get<OrganizationInvitation>(`invitation:${organizationId}`);
+    if (invitation) {
+      // Get the organization from the owner's UserDO
+      try {
+        const ownerDO = await getUserDO(this.env.USERDO, invitation.inviterEmail);
+        const orgResult = await ownerDO.getOrganizationAsOwner({ organizationId });
+        return orgResult;
+      } catch (error) {
+        throw new Error('Organization not found or access denied');
+      }
+    }
+
+    // Fallback to checking if it's stored locally (user is owner)
+    const organization = await this.storage.get<Organization>(`org:${organizationId}`);
+    if (!organization) throw new Error('Organization not found');
+
+    // Check if user has access (owner or member)
+    const hasAccess = organization.ownerId === user.id ||
+      organization.members.some(m => m.email === user.email);
+
+    if (!hasAccess) throw new Error('Access denied');
+
+    return { organization };
+  }
+
+  // Helper method to get organization data when called from another UserDO
+  async getOrganizationAsOwner(
+    { organizationId }: { organizationId: string }
+  ): Promise<{ organization: Organization }> {
+    const organization = await this.storage.get<Organization>(`org:${organizationId}`);
+    if (!organization) throw new Error('Organization not found');
+    return { organization };
+  }
+
+  async addMemberToOrganization(
+    { organizationId, email, role = 'member' }:
+      { organizationId: string; email: string; role?: 'admin' | 'member' }
+  ): Promise<{ ok: boolean }> {
+    const parsed = AddMemberSchema.safeParse({ organizationId, email, role });
+    if (!parsed.success) {
+      throw new Error('Invalid input: ' + JSON.stringify(parsed.error.flatten()));
+    }
+
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
+    if (!user) throw new Error('User not found');
+
+    const organization = await this.storage.get<Organization>(`org:${organizationId}`);
+    if (!organization) throw new Error('Organization not found');
+
+    // Check if user is owner or admin
+    const userRole = organization.ownerId === user.id ? 'owner' :
+      organization.members.find(m => m.email === user.email)?.role;
+
+    if (userRole !== 'owner' && userRole !== 'admin') {
+      throw new Error('Insufficient permissions');
+    }
+
+    // Check if member already exists
+    const existingMember = organization.members.find(m => m.email === email.toLowerCase());
+    if (existingMember) {
+      throw new Error('Member already exists in organization');
+    }
+
+    // Add member to this organization
+    organization.members.push({
+      email: email.toLowerCase(),
+      role,
+      addedAt: new Date().toISOString(),
+    });
+
+    await this.storage.put(`org:${organizationId}`, organization);
+
+    // ALSO store the invitation in the invitee's UserDO
+    console.log('About to store invitation for:', email.toLowerCase());
+    const inviteeDO = await getUserDO(this.env.USERDO, email.toLowerCase());
+    console.log('Got invitee UserDO, storing invitation...');
+    await inviteeDO.storeInvitation({
+      organizationId,
+      organizationName: organization.name,
+      inviterEmail: user.email,
+      role,
+      addedAt: new Date().toISOString()
+    });
+    console.log('Invitation stored successfully for:', email.toLowerCase());
+
+    // Broadcast organization change
+    this.broadcast('organization:member_added', {
+      organizationId,
+      member: { email: email.toLowerCase(), role }
+    });
+
+    return { ok: true };
+  }
+
+  async removeMemberFromOrganization(
+    { organizationId, email }: { organizationId: string; email: string }
+  ): Promise<{ ok: boolean }> {
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
+    if (!user) throw new Error('User not found');
+
+    const organization = await this.storage.get<Organization>(`org:${organizationId}`);
+    if (!organization) throw new Error('Organization not found');
+
+    // Check if user is owner or admin
+    const userRole = organization.ownerId === user.id ? 'owner' :
+      organization.members.find(m => m.email === user.email)?.role;
+
+    if (userRole !== 'owner' && userRole !== 'admin') {
+      throw new Error('Insufficient permissions');
+    }
+
+    // Can't remove the owner
+    if (email.toLowerCase() === user.email && organization.ownerId === user.id) {
+      throw new Error('Cannot remove organization owner');
+    }
+
+    // Remove member
+    organization.members = organization.members.filter(m => m.email !== email.toLowerCase());
+    await this.storage.put(`org:${organizationId}`, organization);
+
+    // Broadcast organization change
+    this.broadcast('organization:member_removed', { organizationId, email: email.toLowerCase() });
+
+    return { ok: true };
+  }
+
+  async updateMemberRole(
+    { organizationId, email, role }:
+      { organizationId: string; email: string; role: 'admin' | 'member' }
+  ): Promise<{ ok: boolean }> {
+    const parsed = UpdateMemberRoleSchema.safeParse({ organizationId, email, role });
+    if (!parsed.success) {
+      throw new Error('Invalid input: ' + JSON.stringify(parsed.error.flatten()));
+    }
+
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
+    if (!user) throw new Error('User not found');
+
+    const organization = await this.storage.get<Organization>(`org:${organizationId}`);
+    if (!organization) throw new Error('Organization not found');
+
+    // Only owner can update roles
+    if (organization.ownerId !== user.id) {
+      throw new Error('Only organization owner can update member roles');
+    }
+
+    // Find and update member
+    const member = organization.members.find(m => m.email === email.toLowerCase());
+    if (!member) throw new Error('Member not found');
+
+    member.role = role;
+    await this.storage.put(`org:${organizationId}`, organization);
+
+    // Broadcast organization change
+    this.broadcast('organization:member_role_updated', { organizationId, email: email.toLowerCase(), role });
+
+    return { ok: true };
+  }
+
+  async getMemberOrganizations(): Promise<{ organizations: OrganizationMember[] }> {
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
+    if (!user) throw new Error('User not found');
+
+    console.log('Getting member organizations for:', user.email);
+
+    const memberOrganizations: OrganizationMember[] = [];
+
+    // Get invitations stored in this UserDO
+    const invitationKeys = await this.storage.list({ prefix: 'invitation:' });
+    console.log('Found invitation keys:', Array.from(invitationKeys.keys()));
+
+    for (const [key, value] of invitationKeys) {
+      const invitation = value as OrganizationInvitation;
+      console.log('Processing invitation:', invitation);
+      memberOrganizations.push({
+        organizationId: invitation.organizationId,
+        organizationName: invitation.organizationName,
+        role: invitation.role,
+        addedAt: invitation.addedAt,
+      });
+    }
+
+    console.log('Returning member organizations:', memberOrganizations);
+    return { organizations: memberOrganizations };
+  }
+
+  // Store an invitation in this UserDO (called from the inviter's UserDO)
+  async storeInvitation(invitation: OrganizationInvitation): Promise<{ ok: boolean }> {
+    console.log('Storing invitation:', invitation);
+    const parsed = OrganizationInvitationSchema.safeParse(invitation);
+    if (!parsed.success) {
+      throw new Error('Invalid invitation: ' + JSON.stringify(parsed.error.flatten()));
+    }
+
+    await this.storage.put(`invitation:${invitation.organizationId}`, invitation);
+    console.log('Invitation stored successfully with key:', `invitation:${invitation.organizationId}`);
+    return { ok: true };
+  }
+
   public table<T extends z.ZodSchema>(
     name: string,
     schema: T,
     options?: TableOptions
   ) {
     return this.database.table(name, schema, options);
+  }
+
+  public setOrganizationContext(organizationId?: string) {
+    this.database.setOrganizationContext(organizationId);
   }
 
   public get db() {

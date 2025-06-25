@@ -1,18 +1,25 @@
 import { Hono, Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { createAuthMiddleware } from './authMiddleware'
-import { UserDO, type Env } from './UserDO'
+import { UserDO, type Env, hashEmailForId } from './UserDO'
 import {
   SignupRequestSchema,
   LoginRequestSchema,
   PasswordResetRequestSchema,
   PasswordResetConfirmSchema,
   SetDataRequestSchema,
+  CreateOrganizationRequestSchema,
+  AddMemberRequestSchema,
+  UpdateMemberRoleRequestSchema,
+  RemoveMemberRequestSchema,
   type UserDOEndpoints,
   type AuthResponse,
   type ErrorResponse,
   type SuccessResponse,
   type DataResponse,
+  type OrganizationsResponse,
+  type MemberOrganizationsResponse,
+  type OrganizationResponse,
 } from './worker-types'
 
 type User = {
@@ -33,7 +40,7 @@ app.post('/api/signup', async (c): Promise<Response> => {
     const body = await c.req.json();
     const { email, password } = SignupRequestSchema.parse(body);
 
-    const userDO = getUserDOFromContext(c, email.toLowerCase());
+    const userDO = await getUserDOFromContext(c, email.toLowerCase());
     const { user, token, refreshToken } = await userDO.signup({ email: email.toLowerCase(), password });
 
     setCookie(c, 'token', token, {
@@ -62,7 +69,7 @@ app.post('/api/login', async (c): Promise<Response> => {
     const body = await c.req.json();
     const { email, password } = LoginRequestSchema.parse(body);
 
-    const userDO = getUserDOFromContext(c, email.toLowerCase());
+    const userDO = await getUserDOFromContext(c, email.toLowerCase());
     const { user, token, refreshToken } = await userDO.login({ email: email.toLowerCase(), password });
 
     setCookie(c, 'token', token, {
@@ -94,7 +101,7 @@ app.post('/api/logout', async (c): Promise<Response> => {
       const payload = JSON.parse(atob(tokenParts[1]));
       const email = payload.email?.toLowerCase();
       if (email) {
-        const userDO = getUserDOFromContext(c, email);
+        const userDO = await getUserDOFromContext(c, email);
         await userDO.logout();
       }
     }
@@ -114,7 +121,7 @@ app.post('/api/password-reset/request', async (c): Promise<Response> => {
     const body = await c.req.json();
     const { email } = PasswordResetRequestSchema.parse(body);
 
-    const userDO = getUserDOFromContext(c, email.toLowerCase());
+    const userDO = await getUserDOFromContext(c, email.toLowerCase());
     const { resetToken } = await userDO.generatePasswordResetToken();
 
     // In production, you'd send this token via email
@@ -142,7 +149,7 @@ app.post('/api/password-reset/confirm', async (c): Promise<Response> => {
     const email = payload.email?.toLowerCase();
     if (!email) throw new Error('Invalid token');
 
-    const userDO = getUserDOFromContext(c, email);
+    const userDO = await getUserDOFromContext(c, email);
     await userDO.resetPasswordWithToken({ resetToken, newPassword });
 
     return c.json({ ok: true, message: "Password reset successful" });
@@ -161,9 +168,163 @@ app.get('/api/me', async (c): Promise<Response> => {
   return c.json({ user });
 });
 
+// --- ORGANIZATION ENDPOINTS ---
 
+// Create organization
+app.post('/api/organizations', async (c): Promise<Response> => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+      return c.json(errorResponse, 401);
+    }
 
+    const body = await c.req.json();
+    const { name } = CreateOrganizationRequestSchema.parse(body);
 
+    const userDO = await getUserDOFromContext(c, user.email);
+    const result = await userDO.createOrganization({ name });
+
+    return c.json(result);
+  } catch (e: any) {
+    const errorResponse: ErrorResponse = { error: e.message || "Failed to create organization" };
+    return c.json(errorResponse, 400);
+  }
+});
+
+// Get user's owned organizations
+app.get('/api/organizations', async (c): Promise<Response> => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+      return c.json(errorResponse, 401);
+    }
+
+    const userDO = await getUserDOFromContext(c, user.email);
+    const result = await userDO.getOrganizations();
+
+    const response: OrganizationsResponse = result;
+    return c.json(response);
+  } catch (e: any) {
+    const errorResponse: ErrorResponse = { error: e.message || "Failed to get organizations" };
+    return c.json(errorResponse, 400);
+  }
+});
+
+// Get organizations where user is a member
+app.get('/api/organizations/member', async (c): Promise<Response> => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+      return c.json(errorResponse, 401);
+    }
+
+    const userDO = await getUserDOFromContext(c, user.email);
+    const result = await userDO.getMemberOrganizations();
+
+    const response: MemberOrganizationsResponse = result;
+    return c.json(response);
+  } catch (e: any) {
+    const errorResponse: ErrorResponse = { error: e.message || "Failed to get member organizations" };
+    return c.json(errorResponse, 400);
+  }
+});
+
+// Get specific organization
+app.get('/api/organizations/:id', async (c): Promise<Response> => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+      return c.json(errorResponse, 401);
+    }
+
+    const organizationId = c.req.param('id');
+    if (!organizationId) {
+      const errorResponse: ErrorResponse = { error: 'Organization ID required' };
+      return c.json(errorResponse, 400);
+    }
+
+    const userDO = await getUserDOFromContext(c, user.email);
+    const result = await userDO.getOrganization({ organizationId });
+
+    return c.json(result);
+  } catch (e: any) {
+    const errorResponse: ErrorResponse = { error: e.message || "Failed to get organization" };
+    return c.json(errorResponse, 400);
+  }
+});
+
+// Add member to organization
+app.post('/api/organizations/members', async (c): Promise<Response> => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+      return c.json(errorResponse, 401);
+    }
+
+    const body = await c.req.json();
+    const { organizationId, email, role } = AddMemberRequestSchema.parse(body);
+
+    const userDO = await getUserDOFromContext(c, user.email);
+    await userDO.addMemberToOrganization({ organizationId, email, role });
+
+    const response: SuccessResponse = { ok: true };
+    return c.json(response);
+  } catch (e: any) {
+    const errorResponse: ErrorResponse = { error: e.message || "Failed to add member" };
+    return c.json(errorResponse, 400);
+  }
+});
+
+// Remove member from organization
+app.delete('/api/organizations/members', async (c): Promise<Response> => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+      return c.json(errorResponse, 401);
+    }
+
+    const body = await c.req.json();
+    const { organizationId, email } = RemoveMemberRequestSchema.parse(body);
+
+    const userDO = await getUserDOFromContext(c, user.email);
+    await userDO.removeMemberFromOrganization({ organizationId, email });
+
+    const response: SuccessResponse = { ok: true };
+    return c.json(response);
+  } catch (e: any) {
+    const errorResponse: ErrorResponse = { error: e.message || "Failed to remove member" };
+    return c.json(errorResponse, 400);
+  }
+});
+
+// Update member role
+app.put('/api/organizations/members/role', async (c): Promise<Response> => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+      return c.json(errorResponse, 401);
+    }
+
+    const body = await c.req.json();
+    const { organizationId, email, role } = UpdateMemberRoleRequestSchema.parse(body);
+
+    const userDO = await getUserDOFromContext(c, user.email);
+    await userDO.updateMemberRole({ organizationId, email, role });
+
+    const response: SuccessResponse = { ok: true };
+    return c.json(response);
+  } catch (e: any) {
+    const errorResponse: ErrorResponse = { error: e.message || "Failed to update member role" };
+    return c.json(errorResponse, 400);
+  }
+});
 
 // --- FORM AUTH ENDPOINTS (for server-side forms) ---
 app.post('/signup', async (c) => {
@@ -173,7 +334,7 @@ app.post('/signup', async (c) => {
   if (!email || !password) {
     return c.json({ error: "Missing fields" }, 400)
   }
-  const userDO = getUserDOFromContext(c, email);
+  const userDO = await getUserDOFromContext(c, email);
   try {
     const { user, token, refreshToken } = await userDO.signup({ email, password })
     setCookie(c, 'token', token, {
@@ -201,7 +362,7 @@ app.post('/login', async (c) => {
   if (!email || !password) {
     return c.json({ error: "Missing fields" }, 400)
   }
-  const userDO = getUserDOFromContext(c, email);
+  const userDO = await getUserDOFromContext(c, email);
   try {
     const { user, token, refreshToken } = await userDO.login({ email, password })
     setCookie(c, 'token', token, {
@@ -231,7 +392,7 @@ app.post('/logout', async (c) => {
       const payload = JSON.parse(atob(tokenParts[1]));
       const email = payload.email?.toLowerCase();
       if (email) {
-        const userDO = getUserDOFromContext(c, email);
+        const userDO = await getUserDOFromContext(c, email);
         await userDO.logout();
       }
     }
@@ -250,7 +411,7 @@ app.get("/data", async (c): Promise<Response> => {
     const errorResponse: ErrorResponse = { error: 'Unauthorized' };
     return c.json(errorResponse, 401);
   }
-  const userDO = getUserDOFromContext(c, user.email);
+  const userDO = await getUserDOFromContext(c, user.email);
   const result = await userDO.get('data');
   const response: DataResponse = { ok: true, data: result };
   return c.json(response);
@@ -281,7 +442,7 @@ app.post("/data", async (c): Promise<Response> => {
     // Validate the data
     const { key: validKey, value: validValue } = SetDataRequestSchema.parse({ key, value });
 
-    const userDO = getUserDOFromContext(c, user.email);
+    const userDO = await getUserDOFromContext(c, user.email);
     const result = await userDO.set(validKey, validValue);
     if (!result.ok) {
       const errorResponse: ErrorResponse = { error: 'Failed to set data' };
@@ -308,20 +469,22 @@ app.get('/protected/profile', (c): Response => {
 
 
 // Export utilities for extending the worker
-export function getUserDOFromContext(c: Context, email: string, bindingName: string = 'USERDO'): UserDO {
+export async function getUserDOFromContext(c: Context, email: string, bindingName: string = 'USERDO'): Promise<UserDO> {
   // Use the specified binding name, defaulting to USERDO for backwards compatibility
   const binding = c.env[bindingName];
   if (!binding) {
     throw new Error(`Durable Object binding '${bindingName}' not found. Make sure it's configured in wrangler.jsonc`);
   }
-  const userDOID = binding.idFromName(email);
+  // CRITICAL FIX: Use hashed email like getUserDO does to ensure same UserDO instance
+  const hashedEmail = await hashEmailForId(email.toLowerCase());
+  const userDOID = binding.idFromName(hashedEmail);
   return binding.get(userDOID) as unknown as UserDO;
 }
 export function createUserDOWorker(bindingName: string = 'USERDO') {
   const app = new Hono<{ Bindings: Env, Variables: { user: User } }>();
 
   // Helper function that uses the specified binding name
-  const getUserDO = (c: Context, email: string) => getUserDOFromContext(c, email, bindingName);
+  const getUserDO = async (c: Context, email: string) => await getUserDOFromContext(c, email, bindingName);
 
   // Auth middleware - same clean version as main worker
   app.use('*', createAuthMiddleware(getUserDO, 'createUserDOWorker'));
@@ -332,7 +495,7 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
     try {
       const body = await c.req.json();
       const { email, password } = SignupRequestSchema.parse(body);
-      const userDO = getUserDO(c, email.toLowerCase());
+      const userDO = await getUserDO(c, email.toLowerCase());
       const { user, token, refreshToken } = await userDO.signup({ email: email.toLowerCase(), password });
 
       setCookie(c, 'token', token, {
@@ -360,7 +523,7 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
     try {
       const body = await c.req.json();
       const { email, password } = LoginRequestSchema.parse(body);
-      const userDO = getUserDO(c, email.toLowerCase());
+      const userDO = await getUserDO(c, email.toLowerCase());
       const { user, token, refreshToken } = await userDO.login({ email: email.toLowerCase(), password });
 
       setCookie(c, 'token', token, {
@@ -388,7 +551,7 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
     try {
       const user = c.get('user');
       if (user) {
-        const userDO = getUserDO(c, user.email);
+        const userDO = await getUserDO(c, user.email);
         await userDO.logout();
       }
     } catch (e) {
@@ -404,7 +567,7 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
     try {
       const body = await c.req.json();
       const { email } = PasswordResetRequestSchema.parse(body);
-      const userDO = getUserDO(c, email.toLowerCase());
+      const userDO = await getUserDO(c, email.toLowerCase());
       const { resetToken } = await userDO.generatePasswordResetToken();
 
       return c.json({ ok: true, message: "Password reset token generated", resetToken });
@@ -425,7 +588,7 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
       const email = payload.email?.toLowerCase();
       if (!email) throw new Error('Invalid token');
 
-      const userDO = getUserDO(c, email);
+      const userDO = await getUserDO(c, email);
       await userDO.resetPasswordWithToken({ resetToken, newPassword });
 
       return c.json({ ok: true, message: "Password reset successful" });
@@ -462,7 +625,7 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
     if (!email || !password) {
       return c.json({ error: "Missing fields" }, 400)
     }
-    const userDO = getUserDO(c, email);
+    const userDO = await getUserDO(c, email);
     try {
       const { user, token, refreshToken } = await userDO.signup({ email, password })
       setCookie(c, 'token', token, {
@@ -490,7 +653,7 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
     if (!email || !password) {
       return c.json({ error: "Missing fields" }, 400)
     }
-    const userDO = getUserDO(c, email);
+    const userDO = await getUserDO(c, email);
     try {
       const { user, token, refreshToken } = await userDO.login({ email, password })
       setCookie(c, 'token', token, {
@@ -519,7 +682,7 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
         const payload = JSON.parse(atob(tokenParts[1]));
         const email = payload.email?.toLowerCase();
         if (email) {
-          const userDO = getUserDO(c, email);
+          const userDO = await getUserDO(c, email);
           await userDO.logout();
         }
       }
@@ -538,7 +701,7 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
       const errorResponse: ErrorResponse = { error: 'Unauthorized' };
       return c.json(errorResponse, 401);
     }
-    const userDO = getUserDO(c, user.email);
+    const userDO = await getUserDO(c, user.email);
     const result = await userDO.get('data');
     const response: DataResponse = { ok: true, data: result };
     return c.json(response);
@@ -568,7 +731,7 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
 
       const { key: validKey, value: validValue } = SetDataRequestSchema.parse({ key, value });
 
-      const userDO = getUserDO(c, user.email);
+      const userDO = await getUserDO(c, user.email);
       const result = await userDO.set(validKey, validValue);
       if (!result.ok) {
         const errorResponse: ErrorResponse = { error: 'Failed to set data' };

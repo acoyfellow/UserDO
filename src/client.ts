@@ -310,6 +310,78 @@ class UserDOClient {
       }
     };
   }
+
+  // Organization management
+  async createOrganization(name: string) {
+    const res = await fetch(`${this.baseUrl}/organizations`, {
+      method: "POST",
+      headers: this.headers,
+      credentials: 'include',
+      body: JSON.stringify({ name })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+
+  async getOrganizations() {
+    const res = await fetch(`${this.baseUrl}/organizations`, {
+      headers: this.headers,
+      credentials: 'include'
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+
+  async getMemberOrganizations() {
+    const res = await fetch(`${this.baseUrl}/organizations/member`, {
+      headers: this.headers,
+      credentials: 'include'
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+
+  async getOrganization(organizationId: string) {
+    const res = await fetch(`${this.baseUrl}/organizations/${organizationId}`, {
+      headers: this.headers,
+      credentials: 'include'
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+
+  async addMemberToOrganization(organizationId: string, email: string, role: 'admin' | 'member' = 'member') {
+    const res = await fetch(`${this.baseUrl}/organizations/members`, {
+      method: "POST",
+      headers: this.headers,
+      credentials: 'include',
+      body: JSON.stringify({ organizationId, email, role })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+
+  async removeMemberFromOrganization(organizationId: string, email: string) {
+    const res = await fetch(`${this.baseUrl}/organizations/members`, {
+      method: "DELETE",
+      headers: this.headers,
+      credentials: 'include',
+      body: JSON.stringify({ organizationId, email })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+
+  async updateMemberRole(organizationId: string, email: string, role: 'admin' | 'member') {
+    const res = await fetch(`${this.baseUrl}/organizations/members/role`, {
+      method: "PUT",
+      headers: this.headers,
+      credentials: 'include',
+      body: JSON.stringify({ organizationId, email, role })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
 }
 
 export { UserDOClient };

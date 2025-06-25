@@ -5,6 +5,7 @@ A Durable Object base class that provides user authentication, per-user data sto
 ## Features
 
 - **Authentication**: JWT-based user auth with signup, login, logout, and password reset
+- **Organizations**: Multi-tenant organization management with member roles
 - **Database Tables**: Type-safe SQLite tables with Zod schemas and query builder
 - **Key-Value Storage**: Per-user KV storage with automatic broadcasting
 - **Real-time Updates**: WebSocket connections with hibernation API support
@@ -20,12 +21,15 @@ A Durable Object base class that provides user authentication, per-user data sto
 
 ## Quick Start
 
-### 1. Define Your Schema
+Let's build a simple blog app step by step:
+
+### 1. Create Your Durable Object Class
 
 ```ts
-import { UserDO, type Env, type Table } from "userdo";
+import { UserDO, createUserDOWorker, createWebSocketHandler, getUserDOFromContext, type Env } from "userdo";
 import { z } from "zod";
 
+// Define your data schema
 const PostSchema = z.object({
   title: z.string(),
   content: z.string(),
@@ -33,19 +37,18 @@ const PostSchema = z.object({
 });
 
 type Post = z.infer<typeof PostSchema>;
-```
 
-### 2. Extend UserDO
-
-```ts
-export class MyAppDO extends UserDO {
-  posts: Table<Post>;
+// Extend UserDO with your business logic
+export class BlogDO extends UserDO {
+  posts: any; // This will be a Table<Post> but simplified for clarity
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
+    // Connect your schema to a database table
     this.posts = this.table('posts', PostSchema, { userScoped: true });
   }
 
+  // Add your business methods
   async createPost(title: string, content: string) {
     return await this.posts.create({
       title,
@@ -57,31 +60,44 @@ export class MyAppDO extends UserDO {
   async getPosts() {
     return await this.posts.orderBy('createdAt', 'desc').get();
   }
+
+  async deletePost(id: string) {
+    return await this.posts.delete(id);
+  }
 }
 ```
 
-### 3. Create Your Worker
+### 2. Create Your Worker with API Routes
 
 ```ts
-import { createUserDOWorker, createWebSocketHandler, getUserDOFromContext } from 'userdo';
+// Create the worker (this gives you auth endpoints automatically)
+const app = createUserDOWorker('BLOG_DO');
+const wsHandler = createWebSocketHandler('BLOG_DO');
 
-// Create worker with custom binding name
-const app = createUserDOWorker('MY_APP_DO');
-const wsHandler = createWebSocketHandler('MY_APP_DO');
+// Add your custom API routes
+app.get('/api/posts', async (c) => {
+  const user = c.get('user');
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  
+  // Get the user's BlogDO instance
+  const blogDO = getUserDOFromContext(c, user.email, 'BLOG_DO') as BlogDO;
+  const posts = await blogDO.getPosts();
+  
+  return c.json({ posts });
+});
 
-// Add custom routes
 app.post('/api/posts', async (c) => {
   const user = c.get('user');
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
   
   const { title, content } = await c.req.json();
-  const myAppDO = getUserDOFromContext(c, user.email, 'MY_APP_DO') as MyAppDO;
-  const post = await myAppDO.createPost(title, content);
+  const blogDO = getUserDOFromContext(c, user.email, 'BLOG_DO') as BlogDO;
+  const post = await blogDO.createPost(title, content);
   
   return c.json({ post });
 });
 
-// Export worker with WebSocket support
+// Export your worker with WebSocket support
 export default {
   async fetch(request: Request, env: any, ctx: any): Promise<Response> {
     if (request.headers.get('upgrade') === 'websocket') {
@@ -91,6 +107,32 @@ export default {
   }
 };
 ```
+
+### 3. Configure Wrangler
+
+```jsonc
+// wrangler.jsonc
+{
+  "main": "src/index.ts",
+  "vars": {
+    "JWT_SECRET": "your-jwt-secret-here"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BLOG_DO",
+        "class_name": "BlogDO"
+      }
+    ]
+  }
+}
+```
+
+That's it! Your app now has:
+- User authentication (`POST /api/signup`, `POST /api/login`, etc.)
+- Custom blog endpoints (`GET /api/posts`, `POST /api/posts`)
+- Real-time WebSocket updates
+- Per-user data isolation
 
 ## Built-in API Endpoints
 
@@ -103,6 +145,15 @@ export default {
 ### Password Reset
 - `POST /api/password-reset/request` - Generate reset token
 - `POST /api/password-reset/confirm` - Reset password with token
+
+### Organizations
+- `POST /api/organizations` - Create organization
+- `GET /api/organizations` - Get owned organizations
+- `GET /api/organizations/member` - Get member organizations
+- `GET /api/organizations/:id` - Get specific organization
+- `POST /api/organizations/members` - Add member to organization
+- `DELETE /api/organizations/members` - Remove member from organization
+- `PUT /api/organizations/members/role` - Update member role
 
 ### Data Operations
 - `GET /data` - Get user's key-value data
@@ -122,18 +173,27 @@ const client = new UserDOClient('/api');
 await client.signup('user@example.com', 'password');
 await client.login('user@example.com', 'password');
 
-// Key-value operations
+// Organization management
+const { organization } = await client.createOrganization('My Company');
+const { organizations } = await client.getOrganizations();
+await client.addMemberToOrganization(organization.id, 'member@example.com', 'admin');
+
+// Use your custom API endpoints
+const response = await fetch('/api/posts', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ title: 'Hello', content: 'World' })
+});
+const { post } = await response.json();
+
+// Key-value operations (built-in)
 await client.set('preferences', { theme: 'dark' });
 const prefs = await client.get('preferences');
 
-// Watch for changes
+// Watch for real-time changes
 const unsubscribe = client.onChange('preferences', data => {
   console.log('Preferences updated:', data);
 });
-
-// Collections (if you have custom endpoints)
-const posts = client.collection('posts');
-await posts.create({ title: 'Hello', content: 'World' });
 ```
 
 ## Database Operations
@@ -141,13 +201,43 @@ await posts.create({ title: 'Hello', content: 'World' });
 ### Table Creation
 ```ts
 // In your UserDO constructor
+const PostSchema = z.object({
+  title: z.string(),
+  content: z.string(),
+  createdAt: z.string(),
+});
+
+// User-scoped table (data isolated per user)
 this.posts = this.table('posts', PostSchema, { userScoped: true });
+
+// Organization-scoped table (data isolated per organization)
+this.orgPosts = this.table('org_posts', PostSchema, { organizationScoped: true });
+```
+
+### Organization-Scoped Data
+```ts
+// Set organization context before operations
+this.setOrganizationContext(organizationId);
+
+// Now all table operations are scoped to this organization
+const post = await this.orgPosts.create({
+  title: 'Team Post',
+  content: 'This is visible to all organization members',
+  createdAt: new Date().toISOString()
+});
+
+// Clear organization context
+this.setOrganizationContext(undefined);
 ```
 
 ### CRUD Operations
 ```ts
 // Create
-const post = await this.posts.create({ title, content, createdAt });
+const post = await this.posts.create({ 
+  title: 'My Post', 
+  content: 'Hello world',
+  createdAt: new Date().toISOString()
+});
 
 // Read
 const post = await this.posts.findById(id);
@@ -173,20 +263,47 @@ const posts = await this.posts
 const count = await this.posts.count();
 ```
 
+## Organization Hierarchy
+
+UserDO supports multi-tenant organizations with the following structure:
+
+```
+Users (Account Owners)
+  └── Organizations (Teams/Companies)
+      └── Members (Team Members with Roles)
+          └── Organization-Scoped Data
+```
+
+### Organization Roles
+- **Owner**: User who created the organization (full permissions)
+- **Admin**: Can manage members and data within the organization
+- **Member**: Can access organization data based on permissions
+
+### Data Isolation
+- **User-scoped**: Each user has their own isolated data
+- **Organization-scoped**: Data is shared within an organization
+- **Member access**: Organization members can access shared data based on their role
+
 ## Real-time Events
 
 Data changes automatically broadcast WebSocket events:
 
-- `kv:{key}` - When key-value data changes
+- `kv:{key}` - When key-value data changes  
 - `table:{tableName}` - When table data changes (create/update/delete)
+- `organization:*` - When organization membership changes
 
 ```ts
-// Listen for specific events
+// Listen for key-value changes
 client.onChange('preferences', data => console.log('Prefs changed:', data));
 
-// Listen for table changes
-const posts = client.collection('posts');
-posts.onChange(data => console.log('Post changed:', data));
+// Listen for table changes via WebSocket
+const ws = new WebSocket('ws://localhost:8787/api/ws');
+ws.onmessage = (event) => {
+  const message = JSON.parse(event.data);
+  if (message.event === 'table:posts') {
+    console.log('Post changed:', message.data);
+  }
+};
 ```
 
 ## Multiple Projects
@@ -195,9 +312,11 @@ Use different binding names to isolate projects:
 
 ```ts
 // Project 1: Blog
+export class BlogDO extends UserDO { /* ... */ }
 const blogWorker = createUserDOWorker('BLOG_DO');
 
-// Project 2: Shop
+// Project 2: Shop  
+export class ShopDO extends UserDO { /* ... */ }
 const shopWorker = createUserDOWorker('SHOP_DO');
 
 // Default binding
@@ -216,8 +335,8 @@ const defaultWorker = createUserDOWorker(); // Uses 'USERDO'
   "durable_objects": {
     "bindings": [
       {
-        "name": "MY_APP_DO",
-        "class_name": "MyAppDO"
+        "name": "BLOG_DO",
+        "class_name": "BlogDO"
       }
     ]
   }
@@ -267,6 +386,7 @@ npm install userdo
 
 Complete working examples:
 - [`examples/hono`](examples/hono) - Full-featured Hono integration
+- [`examples/organizations`](examples/organizations) - **NEW** Organization management with team collaboration
 - [`examples/alchemy`](examples/alchemy) - Alchemy.run deployment
 - [`examples/effect`](examples/effect) - Effect library integration
 - [`examples/multi-tenant`](examples/multi-tenant) - Multi-tenant patterns
@@ -297,6 +417,9 @@ Complete working examples:
 
 ## Recent Updates
 
+- ✅ **Organizations**: Multi-tenant organization management with member roles
+- ✅ **Organization-scoped data**: Tables can be scoped to organizations for team collaboration
+- ✅ **Role-based permissions**: Owner, admin, and member roles with different access levels
 - ✅ WebSocket hibernation API support
 - ✅ Configurable Durable Object binding names
 - ✅ Auto-reconnecting browser client

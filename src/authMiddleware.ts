@@ -4,7 +4,7 @@ import type { UserDO } from './UserDO'
 
 const isRequestSecure = (c: Context) => new URL(c.req.url).protocol === 'https:'
 
-export type GetUserDO = (c: Context, email: string) => UserDO
+export type GetUserDO = (c: Context, email: string) => UserDO | Promise<UserDO>
 
 export function createAuthMiddleware(getUserDO: GetUserDO, logPrefix = '') {
   return async (c: Context, next: Next) => {
@@ -32,7 +32,7 @@ export function createAuthMiddleware(getUserDO: GetUserDO, logPrefix = '') {
           decodeJWT(refreshToken)?.email?.toLowerCase()
 
         if (email) {
-          const userDO = getUserDO(c, email)
+          const userDO = await getUserDO(c, email)
           let result = await userDO.verifyToken({ token })
           console.log(`🔑 ${prefix}Token verification for ${email}:`, { success: result.ok })
 

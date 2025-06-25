@@ -10,7 +10,8 @@ export class GenericQuery<T> {
     private tableName: string,
     private storage: DurableObjectStorage,
     private schema: z.ZodSchema<T>,
-    private userId: string
+    private userId: string,
+    private organizationId?: string
   ) { }
 
   where(path: string, operator: '==' | '!=' | '>' | '<' | 'includes', value: any): this {
@@ -34,8 +35,12 @@ export class GenericQuery<T> {
   }
 
   async get(): Promise<Array<T & { id: string; createdAt: Date; updatedAt: Date }>> {
-    let sql = `SELECT * FROM "${this.tableName}" WHERE user_id = ?`;
-    const params: any[] = [this.userId];
+    let sql = this.organizationId
+      ? `SELECT * FROM "${this.tableName}" WHERE user_id = ? AND organization_id = ?`
+      : `SELECT * FROM "${this.tableName}" WHERE user_id = ?`;
+    const params: any[] = this.organizationId
+      ? [this.userId, this.organizationId]
+      : [this.userId];
 
     // Add WHERE conditions
     if (this.conditions.length > 0) {
@@ -106,8 +111,12 @@ export class GenericQuery<T> {
   }
 
   async count(): Promise<number> {
-    let sql = `SELECT COUNT(*) as count FROM "${this.tableName}" WHERE user_id = ?`;
-    const params: any[] = [this.userId];
+    let sql = this.organizationId
+      ? `SELECT COUNT(*) as count FROM "${this.tableName}" WHERE user_id = ? AND organization_id = ?`
+      : `SELECT COUNT(*) as count FROM "${this.tableName}" WHERE user_id = ?`;
+    const params: any[] = this.organizationId
+      ? [this.userId, this.organizationId]
+      : [this.userId];
 
     if (this.conditions.length > 0) {
       const whereConditions = this.conditions.map((c) => {
