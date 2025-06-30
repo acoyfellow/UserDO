@@ -472,7 +472,6 @@ export function getUserDOFromContext(c: Context, email: string, bindingName: str
   if (!binding) {
     throw new Error(`Durable Object binding '${bindingName}' not found. Make sure it's configured in wrangler.jsonc`);
   }
-  console.log('🔍 getUserDOFromContext - email:', email);
   const userDOID = binding.idFromName(email);
   return binding.get(userDOID) as unknown as UserDO;
 }

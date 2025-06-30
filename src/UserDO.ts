@@ -96,7 +96,6 @@ export function getUserDO<T extends UserDO>(
   namespace: DurableObjectNamespace<T>,
   email: string
 ): T {
-  console.log('🔍 getUserDO - email:', email);
   return namespace.get(namespace.idFromName(email)) as unknown as T;
 }
 
@@ -530,16 +529,11 @@ export class UserDO extends DurableObject {
     const user = await this.storage.get<User>(AUTH_DATA_KEY);
     if (!user) throw new Error('User not found');
 
-    console.log('🔍 getOrganizations called for user:', user.email);
-    console.log('🔍 getOrganizations UserDO state ID:', this.state.id.toString());
-
     // Get organizations I own
     const ownedOrganizations = await this.ownedOrganizations.getAll();
-    console.log('🔍 Owned organizations:', ownedOrganizations);
 
     // Get organizations I'm a member of
     const memberOrganizations = await this.storage.get<OrganizationMembership[]>('organization_memberships') || [];
-    console.log('🔍 Member organizations:', memberOrganizations);
 
     return {
       organizations: ownedOrganizations,
@@ -551,36 +545,27 @@ export class UserDO extends DurableObject {
     const user = await this.storage.get<User>(AUTH_DATA_KEY);
     if (!user) throw new Error('User not found');
 
-    console.log('🔍 getOrganization called for user:', user.email, 'org:', organizationId);
-
     // First check if I own this organization
     const ownedOrg = await this.ownedOrganizations.findById(organizationId);
-    console.log('🔍 Owned org check result:', ownedOrg);
 
     if (ownedOrg) {
       // I own it - get members from my UserDO
       const members = await this.organizationMembers.where('organizationId', '==', organizationId).get();
-      console.log('🔍 Found owned org, members:', members);
       return { organization: ownedOrg, members, isOwner: true };
     }
 
     // Check if I'm a member of this organization
     const memberships = await this.storage.get<OrganizationMembership[]>('organization_memberships') || [];
-    console.log('🔍 My memberships:', memberships);
     const membership = memberships.find(m => m.organizationId === organizationId);
-    console.log('🔍 Matching membership:', membership);
 
     if (!membership) {
       throw new Error('Not a member of this organization');
     }
 
     // Get organization data from the owner's UserDO
-    console.log('🔍 Getting organization from owner:', membership.ownerEmail);
     const namespace = this.findUserDONamespace();
     const ownerDO = getUserDO(namespace, membership.ownerEmail);
-    console.log('🔍 Owner UserDO obtained, calling getOwnedOrganization');
     const ownerOrgData = await ownerDO.getOwnedOrganization(organizationId);
-    console.log('🔍 Owner org data:', ownerOrgData);
 
     return {
       organization: ownerOrgData.organization,
@@ -591,16 +576,11 @@ export class UserDO extends DurableObject {
 
   // Helper method for cross-UserDO access
   async getOwnedOrganization(organizationId: string): Promise<{ organization: Organization; members: OrganizationMember[] }> {
-    const user = await this.storage.get<User>(AUTH_DATA_KEY);
-    console.log('🔍 getOwnedOrganization called for user:', user?.email, 'org:', organizationId);
-
     const organization = await this.ownedOrganizations.findById(organizationId);
-    console.log('🔍 Found organization:', organization);
 
     if (!organization) throw new Error('Organization not found');
 
     const members = await this.organizationMembers.where('organizationId', '==', organizationId).get();
-    console.log('🔍 Found members:', members);
     return { organization, members };
   }
 
@@ -645,12 +625,8 @@ export class UserDO extends DurableObject {
 
     // Add membership to the target user's UserDO
     try {
-      console.log('🔍 Getting target UserDO for:', email.toLowerCase());
-      const hashedEmail = await hashEmailForId(email.toLowerCase());
-      console.log('🔍 Hashed email for UserDO ID:', hashedEmail);
       const namespace = this.findUserDONamespace();
       const targetUserDO = getUserDO(namespace, email.toLowerCase());
-      console.log('🔍 Target UserDO obtained, calling addMembership');
 
       await targetUserDO.addMembership({
         organizationId,
@@ -659,9 +635,8 @@ export class UserDO extends DurableObject {
         role,
         joinedAt: new Date().toISOString(),
       });
-      console.log('🔍 Successfully added membership to target user');
     } catch (error) {
-      console.error('🔍 Failed to add membership to target user:', error);
+      console.error('Failed to add membership to target user:', error);
       console.log('Could not deliver membership immediately - will be available when user signs up');
     }
 
@@ -672,31 +647,19 @@ export class UserDO extends DurableObject {
 
   // Helper method to add membership to a user's UserDO
   async addMembership(membership: OrganizationMembership): Promise<void> {
-    console.log('🔍 addMembership called for:', membership);
-    console.log('🔍 UserDO state ID:', this.state.id.toString());
-    console.log('🔍 UserDO state ID hex:', this.state.id.toString());
-
     const memberships = await this.storage.get<OrganizationMembership[]>('organization_memberships') || [];
-    console.log('🔍 Existing memberships:', memberships);
 
     // Check if membership already exists
     const existingIndex = memberships.findIndex(m => m.organizationId === membership.organizationId);
     if (existingIndex >= 0) {
       // Update existing membership
       memberships[existingIndex] = membership;
-      console.log('🔍 Updated existing membership at index:', existingIndex);
     } else {
       // Add new membership
       memberships.push(membership);
-      console.log('🔍 Added new membership, total count:', memberships.length);
     }
 
     await this.storage.put('organization_memberships', memberships);
-    console.log('🔍 Successfully stored memberships');
-
-    // Verify it was stored
-    const stored = await this.storage.get<OrganizationMembership[]>('organization_memberships') || [];
-    console.log('🔍 Verified stored memberships:', stored);
   }
 
   async removeOrganizationMember(organizationId: string, userId: string): Promise<{ ok: boolean }> {

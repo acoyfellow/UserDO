@@ -56,20 +56,10 @@ export class GenericTable<T = any> {
       params = [id, this.userId];
     }
 
-    console.log('🔍 SQL findById:', {
-      table: this.tableName,
-      sql: selectSQL,
-      params: params,
-      orgContext: this.organizationContext
-    });
-
     const cursor = this.storage.sql.exec(selectSQL, ...params);
     const results = cursor.toArray();
 
-    console.log('🔍 SQL findById results:', results);
-
     if (results.length === 0) {
-      console.log('🔍 No results found, returning null');
       return null;
     }
 
