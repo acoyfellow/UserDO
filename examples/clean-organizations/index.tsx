@@ -15,12 +15,11 @@ import {
   CreateTaskPage
 } from './frontend';
 
-// Define schemas for our organization-scoped data
+// Define schemas for our business data
 const ProjectSchema = z.object({
   name: z.string(),
   description: z.string(),
   status: z.enum(['active', 'completed', 'archived']).default('active'),
-  createdAt: z.string(),
 });
 
 const TaskSchema = z.object({
@@ -29,11 +28,40 @@ const TaskSchema = z.object({
   projectId: z.string(),
   assignedTo: z.string().optional(),
   completed: z.boolean().default(false),
+});
+
+// Organization schemas - these live in the business logic layer
+const OrganizationSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  ownerId: z.string(),
+  ownerEmail: z.string(),
+  createdAt: z.string(),
+});
+
+const OrganizationMemberSchema = z.object({
+  id: z.string(),
+  organizationId: z.string(),
+  userId: z.string(),
+  email: z.string(),
+  role: z.enum(['admin', 'member']),
+  addedAt: z.string(),
+});
+
+const OrganizationInviteSchema = z.object({
+  id: z.string(),
+  organizationId: z.string(),
+  organizationName: z.string(),
+  inviterEmail: z.string(),
+  role: z.enum(['admin', 'member']),
   createdAt: z.string(),
 });
 
 type Project = z.infer<typeof ProjectSchema>;
 type Task = z.infer<typeof TaskSchema>;
+type Organization = z.infer<typeof OrganizationSchema>;
+type OrganizationMember = z.infer<typeof OrganizationMemberSchema>;
+type OrganizationInvite = z.infer<typeof OrganizationInviteSchema>;
 
 // Extended Env interface for TeamDO
 interface Env extends BaseEnv {
@@ -54,45 +82,43 @@ export class TeamDO extends UserDO {
   }
 
   // 🚀 Business logic methods - clean and simple!
-  
+
   async createProject(name: string, description: string, organizationId: string) {
     // Verify access (built-in method handles this)
-    await this.getOrganization({ organizationId });
-    
+    await this.getOrganization(organizationId);
+
     // Set organization context (built-in)
     this.setOrganizationContext(organizationId);
-    
+
     // Create project - automatically scoped to organization
     return await this.projects.create({
       name,
       description,
       status: 'active',
-      createdAt: new Date().toISOString(),
     });
   }
 
   async getProjects(organizationId: string) {
-    await this.getOrganization({ organizationId });
+    await this.getOrganization(organizationId);
     this.setOrganizationContext(organizationId);
     return await this.projects.orderBy('createdAt', 'desc').get();
   }
 
   async createTask(title: string, description: string, projectId: string, organizationId: string, assignedTo?: string) {
-    await this.getOrganization({ organizationId });
+    await this.getOrganization(organizationId);
     this.setOrganizationContext(organizationId);
-    
+
     return await this.tasks.create({
       title,
       description,
       projectId,
       assignedTo,
       completed: false,
-      createdAt: new Date().toISOString(),
     });
   }
 
   async getTasks(organizationId: string, projectId?: string) {
-    await this.getOrganization({ organizationId });
+    await this.getOrganization(organizationId);
     this.setOrganizationContext(organizationId);
 
     if (projectId) {
@@ -102,24 +128,36 @@ export class TeamDO extends UserDO {
   }
 
   async completeTask(taskId: string, organizationId: string) {
-    await this.getOrganization({ organizationId });
+    await this.getOrganization(organizationId);
     this.setOrganizationContext(organizationId);
+
     return await this.tasks.update(taskId, { completed: true });
   }
 
-  // 🎯 No need to override organization methods - they work automatically!
-  // ✅ createOrganization() - built-in
-  // ✅ addMemberToOrganization() - built-in with automatic invitations
-  // ✅ getMemberOrganizations() - built-in, returns stored invitations
-  // ✅ getOrganization() - built-in with access control
-  // ✅ removeMemberFromOrganization() - built-in
+  // 🎯 Organization methods are now built into UserDO core!
+  // ✅ All organization management is handled by the base UserDO worker endpoints
 }
 
-// 🏗️ Create the worker with built-in organization endpoints
+// 🏗️ Create the worker following UserDO patterns
 const app = createUserDOWorker('TEAM_DO');
 const wsHandler = createWebSocketHandler('TEAM_DO');
 
+// Helper function following the pattern from hono example
+const getTeamDO = (c: Context, email: string) => {
+  return getUserDOFromContext(c, email, 'TEAM_DO') as TeamDO;
+};
+
+const requireAuth = (c: Context) => {
+  const user = c.get('user');
+  if (!user) {
+    return { error: c.json({ error: 'Unauthorized' }, 401), user: null };
+  }
+  return { user, error: null };
+};
+
 // 📝 Add business logic endpoints (the built-in org endpoints are already there!)
+
+// === Project API Endpoints ===
 
 app.post('/api/projects', async (c: Context) => {
   try {
@@ -144,7 +182,7 @@ app.post('/api/projects', async (c: Context) => {
       return c.json({ error: 'Missing required fields' }, 400);
     }
 
-    const teamDO = await getUserDOFromContext(c, user.email, 'TEAM_DO') as TeamDO;
+    const teamDO = getTeamDO(c, user.email);
     const project = await teamDO.createProject(name, description, organizationId);
 
     if (contentType.includes('application/json')) {
@@ -156,6 +194,8 @@ app.post('/api/projects', async (c: Context) => {
     return c.json({ error: e.message }, 400);
   }
 });
+
+// === Task API Endpoints ===
 
 app.post('/api/tasks', async (c) => {
   try {
@@ -181,7 +221,7 @@ app.post('/api/tasks', async (c) => {
       return c.json({ error: 'Missing required fields' }, 400);
     }
 
-    const teamDO = await getUserDOFromContext(c, user.email, 'TEAM_DO') as TeamDO;
+    const teamDO = getTeamDO(c, user.email);
     const task = await teamDO.createTask(title, description, projectId, organizationId, assignedTo);
 
     if (contentType.includes('application/json')) {
@@ -194,28 +234,7 @@ app.post('/api/tasks', async (c) => {
   }
 });
 
-app.put('/api/tasks/:taskId/complete', async (c) => {
-  try {
-    const user = c.get('user');
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
-
-    const taskId = c.req.param('taskId');
-    const { organizationId } = await c.req.json();
-
-    if (!taskId || !organizationId) {
-      return c.json({ error: 'Missing required fields' }, 400);
-    }
-
-    const teamDO = await getUserDOFromContext(c, user.email, 'TEAM_DO') as TeamDO;
-    const task = await teamDO.completeTask(taskId, organizationId);
-
-    return c.json({ task });
-  } catch (e: any) {
-    return c.json({ error: e.message }, 400);
-  }
-});
-
-// 🎨 Web routes for the frontend
+// === Web Routes ===
 
 app.get('/', async (c) => {
   const user = c.get('user');
@@ -224,17 +243,16 @@ app.get('/', async (c) => {
   }
 
   try {
-    const teamDO = await getUserDOFromContext(c, user.email, 'TEAM_DO') as TeamDO;
+    const teamDO = getTeamDO(c, user.email);
 
     // 🎉 Built-in organization methods - no custom logic needed!
     const organizationsResponse = await teamDO.getOrganizations();
-    const memberOrganizationsResponse = await teamDO.getMemberOrganizations();
 
     return c.html(
-      <Dashboard 
-        user={user} 
-        organizations={organizationsResponse.organizations} 
-        memberOrganizations={memberOrganizationsResponse.organizations} 
+      <Dashboard
+        user={user}
+        organizations={organizationsResponse.organizations}
+        memberOrganizations={organizationsResponse.memberOrganizations}
       />
     );
   } catch (e: any) {
@@ -246,75 +264,66 @@ app.get('/login', (c) => c.html(<LoginPage />));
 app.get('/signup', (c) => c.html(<SignupPage />));
 
 app.get('/organizations', async (c) => {
-  const user = c.get('user');
-  if (!user) return c.redirect('/login');
+  const { user, error } = requireAuth(c);
+  if (error) return c.redirect('/login');
 
   try {
-    const teamDO = await getUserDOFromContext(c, user.email, 'TEAM_DO') as TeamDO;
+    const teamDO = getTeamDO(c, user!.email);
     const { organizations } = await teamDO.getOrganizations();
 
-    return c.html(<OrganizationsPage user={user} organizations={organizations} />);
+    return c.html(<OrganizationsPage user={user!} organizations={organizations} />);
   } catch (e: any) {
     return c.html(<div>Error: {e.message}</div>);
   }
 });
 
 app.get('/organizations/member', async (c) => {
-  const user = c.get('user');
-  if (!user) return c.redirect('/login');
+  const { user, error } = requireAuth(c);
+  if (error) return c.redirect('/login');
 
   try {
-    const teamDO = await getUserDOFromContext(c, user.email, 'TEAM_DO') as TeamDO;
-    const { organizations: memberOrganizations } = await teamDO.getMemberOrganizations();
+    const teamDO = getTeamDO(c, user!.email);
+    const { memberOrganizations } = await teamDO.getOrganizations();
 
-    return c.html(<MemberOrganizationsPage user={user} memberOrganizations={memberOrganizations} />);
+    return c.html(<MemberOrganizationsPage user={user!} memberOrganizations={memberOrganizations} />);
   } catch (e: any) {
     return c.html(<div>Error: {e.message}</div>);
   }
 });
 
 app.get('/organizations/new', (c) => {
-  const user = c.get('user');
-  if (!user) return c.redirect('/login');
-  return c.html(<CreateOrganizationPage user={user} />);
+  const { user, error } = requireAuth(c);
+  if (error) return c.redirect('/login');
+  return c.html(<CreateOrganizationPage user={user!} />);
 });
 
 app.get('/organizations/:id', async (c) => {
-  const user = c.get('user');
-  if (!user) return c.redirect('/login');
+  const { user, error } = requireAuth(c);
+  if (error) return c.redirect('/login');
 
   try {
     const organizationId = c.req.param('id');
-    const teamDO = await getUserDOFromContext(c, user.email, 'TEAM_DO') as TeamDO;
+    const teamDO = getTeamDO(c, user!.email);
 
     // 🎉 Built-in organization access control
-    const { organization } = await teamDO.getOrganization({ organizationId });
+    const { organization, members, isOwner } = await teamDO.getOrganization(organizationId);
     const projects = await teamDO.getProjects(organizationId);
 
-    const isOwner = organization.ownerId === user.id;
-    const userMember = organization.members.find(m => m.email === user.email);
-    
-    // Check member organizations for invited users
-    let userRole = userMember?.role;
-    if (!userMember && !isOwner) {
-      const memberOrgs = await teamDO.getMemberOrganizations();
-      const memberOrg = memberOrgs.organizations.find(org => org.organizationId === organizationId);
-      if (memberOrg) {
-        userRole = memberOrg.role;
-      }
-    }
+    const userMember = members.find(m => m.email === user!.email);
+    const isAdmin = isOwner || userMember?.role === 'admin';
+    const isMember = isOwner || !!userMember;
 
-    const isAdmin = isOwner || userRole === 'admin';
-    const isMember = isOwner || userMember || userRole;
+    // Add members to organization object for the component
+    const organizationWithMembers = { ...organization, members };
 
     return c.html(
       <OrganizationDetailPage
-        user={user}
-        organization={organization}
+        user={user!}
+        organization={organizationWithMembers}
         projects={projects}
         isOwner={isOwner}
         isAdmin={isAdmin}
-        isMember={!!isMember}
+        isMember={isMember}
       />
     );
   } catch (e: any) {
@@ -322,18 +331,21 @@ app.get('/organizations/:id', async (c) => {
   }
 });
 
+// Project routes
 app.get('/organizations/:id/projects/new', async (c) => {
-  const user = c.get('user');
-  if (!user) return c.redirect('/login');
+  const { user, error } = requireAuth(c);
+  if (error) return c.redirect('/login');
 
   try {
     const organizationId = c.req.param('id');
-    const teamDO = await getUserDOFromContext(c, user.email, 'TEAM_DO') as TeamDO;
-    const { organization } = await teamDO.getOrganization({ organizationId });
+    const teamDO = getTeamDO(c, user!.email);
+
+    // Verify access to organization
+    const { organization } = await teamDO.getOrganization(organizationId);
 
     return c.html(
       <CreateProjectPage
-        user={user}
+        user={user!}
         organizationId={organizationId}
         organizationName={organization.name}
       />
@@ -343,16 +355,17 @@ app.get('/organizations/:id/projects/new', async (c) => {
   }
 });
 
-app.get('/organizations/:orgId/projects/:projectId', async (c) => {
-  const user = c.get('user');
-  if (!user) return c.redirect('/login');
+app.get('/organizations/:id/projects/:projectId', async (c) => {
+  const { user, error } = requireAuth(c);
+  if (error) return c.redirect('/login');
 
   try {
-    const organizationId = c.req.param('orgId');
+    const organizationId = c.req.param('id');
     const projectId = c.req.param('projectId');
-    const teamDO = await getUserDOFromContext(c, user.email, 'TEAM_DO') as TeamDO;
+    const teamDO = getTeamDO(c, user!.email);
 
-    const { organization } = await teamDO.getOrganization({ organizationId });
+    // Get organization and project data
+    const { organization, members, isOwner } = await teamDO.getOrganization(organizationId);
     const projects = await teamDO.getProjects(organizationId);
     const project = projects.find(p => p.id === projectId);
 
@@ -362,12 +375,20 @@ app.get('/organizations/:orgId/projects/:projectId', async (c) => {
 
     const tasks = await teamDO.getTasks(organizationId, projectId);
 
+    const userMember = members.find(m => m.email === user!.email);
+    const isAdmin = isOwner || userMember?.role === 'admin';
+    const isMember = isOwner || !!userMember;
+
     return c.html(
       <ProjectDetailPage
-        user={user}
+        user={user!}
         organization={organization}
         project={project}
         tasks={tasks}
+        members={members}
+        isOwner={isOwner}
+        isAdmin={isAdmin}
+        isMember={isMember}
       />
     );
   } catch (e: any) {
@@ -375,16 +396,17 @@ app.get('/organizations/:orgId/projects/:projectId', async (c) => {
   }
 });
 
-app.get('/organizations/:orgId/projects/:projectId/tasks/new', async (c) => {
-  const user = c.get('user');
-  if (!user) return c.redirect('/login');
+app.get('/organizations/:id/projects/:projectId/tasks/new', async (c) => {
+  const { user, error } = requireAuth(c);
+  if (error) return c.redirect('/login');
 
   try {
-    const organizationId = c.req.param('orgId');
+    const organizationId = c.req.param('id');
     const projectId = c.req.param('projectId');
-    const teamDO = await getUserDOFromContext(c, user.email, 'TEAM_DO') as TeamDO;
+    const teamDO = getTeamDO(c, user!.email);
 
-    const { organization } = await teamDO.getOrganization({ organizationId });
+    // Get organization and project data
+    const { organization, members } = await teamDO.getOrganization(organizationId);
     const projects = await teamDO.getProjects(organizationId);
     const project = projects.find(p => p.id === projectId);
 
@@ -394,9 +416,10 @@ app.get('/organizations/:orgId/projects/:projectId/tasks/new', async (c) => {
 
     return c.html(
       <CreateTaskPage
-        user={user}
+        user={user!}
         organization={organization}
         project={project}
+        members={members}
       />
     );
   } catch (e: any) {

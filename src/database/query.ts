@@ -11,8 +11,12 @@ export class GenericQuery<T> {
     private storage: DurableObjectStorage,
     private schema: z.ZodSchema<T>,
     private userId: string,
-    private organizationContext?: string
+    private getOrganizationContext: () => string | undefined
   ) { }
+
+  private get organizationContext(): string | undefined {
+    return this.getOrganizationContext();
+  }
 
   where(path: string, operator: '==' | '!=' | '>' | '<' | 'includes', value: any): this {
     this.conditions.push({ path, operator, value });
@@ -153,7 +157,7 @@ export class GenericQuery<T> {
     }
 
     const cursor = this.storage.sql.exec(sql, ...params);
-    const row = cursor.one();
-    return row ? Number(row.count) : 0;
+    const results = cursor.toArray();
+    return results.length > 0 ? Number(results[0].count) : 0;
   }
 }

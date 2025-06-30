@@ -10,9 +10,13 @@ export class GenericTable<T = any> {
     private schema: z.ZodSchema<T>,
     private storage: DurableObjectStorage,
     private userId: string,
-    private organizationContext?: string,
+    private getOrganizationContext: () => string | undefined,
     private broadcast?: (event: string, data: any) => void
   ) { }
+
+  private get organizationContext(): string | undefined {
+    return this.getOrganizationContext();
+  }
 
   async create(data: T): Promise<T & { id: string; createdAt: Date; updatedAt: Date }> {
     const validated = this.schema.parse(data);
@@ -52,10 +56,24 @@ export class GenericTable<T = any> {
       params = [id, this.userId];
     }
 
-    const cursor = this.storage.sql.exec(selectSQL, ...params);
-    const row = cursor.one();
+    console.log('🔍 SQL findById:', {
+      table: this.tableName,
+      sql: selectSQL,
+      params: params,
+      orgContext: this.organizationContext
+    });
 
-    if (!row) return null;
+    const cursor = this.storage.sql.exec(selectSQL, ...params);
+    const results = cursor.toArray();
+
+    console.log('🔍 SQL findById results:', results);
+
+    if (results.length === 0) {
+      console.log('🔍 No results found, returning null');
+      return null;
+    }
+
+    const row = results[0];
 
     const data = JSON.parse(row.data as string);
     return {
@@ -118,19 +136,19 @@ export class GenericTable<T = any> {
   }
 
   where(path: string, operator: '==' | '!=' | '>' | '<' | 'includes', value: any): GenericQuery<T> {
-    return new GenericQuery<T>(this.tableName, this.storage, this.schema, this.userId, this.organizationContext).where(path, operator, value);
+    return new GenericQuery<T>(this.tableName, this.storage, this.schema, this.userId, this.getOrganizationContext).where(path, operator, value);
   }
 
   orderBy(field: string, direction: 'asc' | 'desc' = 'asc'): GenericQuery<T> {
-    return new GenericQuery<T>(this.tableName, this.storage, this.schema, this.userId, this.organizationContext).orderBy(field, direction);
+    return new GenericQuery<T>(this.tableName, this.storage, this.schema, this.userId, this.getOrganizationContext).orderBy(field, direction);
   }
 
   limit(count: number): GenericQuery<T> {
-    return new GenericQuery<T>(this.tableName, this.storage, this.schema, this.userId, this.organizationContext).limit(count);
+    return new GenericQuery<T>(this.tableName, this.storage, this.schema, this.userId, this.getOrganizationContext).limit(count);
   }
 
   async getAll(): Promise<Array<T & { id: string; createdAt: Date; updatedAt: Date }>> {
-    return new GenericQuery<T>(this.tableName, this.storage, this.schema, this.userId, this.organizationContext).get();
+    return new GenericQuery<T>(this.tableName, this.storage, this.schema, this.userId, this.getOrganizationContext).get();
   }
 
   async count(): Promise<number> {
@@ -146,7 +164,7 @@ export class GenericTable<T = any> {
     }
 
     const cursor = this.storage.sql.exec(sql, ...params);
-    const row = cursor.one();
-    return row ? Number(row.count) : 0;
+    const results = cursor.toArray();
+    return results.length > 0 ? Number(results[0].count) : 0;
   }
 }

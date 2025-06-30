@@ -14,9 +14,11 @@ interface Organization {
   ownerId: string;
   createdAt: string;
   members: Array<{
+    id: string;
+    userId: string;
     email: string;
     role: 'admin' | 'member';
-    addedAt: string;
+    createdAt: string;
   }>;
 }
 
@@ -189,7 +191,7 @@ export const OrganizationsPage: FC<{ user: User; organizations: Organization[] }
           <div key={org.id} class="card">
             <h3><a href={`/organizations/${org.id}`}>{org.name}</a></h3>
             <p><strong>Created:</strong> {new Date(org.createdAt).toLocaleDateString()}</p>
-            <p><strong>Members:</strong> {org.members.length}</p>
+            <p><strong>Members:</strong> {org.members?.length || 0}</p>
           </div>
         ))}
       </div>
@@ -213,7 +215,7 @@ export const MemberOrganizationsPage: FC<{ user: User; memberOrganizations: any[
           <div key={org.organizationId} class="card">
             <h3><a href={`/organizations/${org.organizationId}`}>{org.organizationName}</a></h3>
             <p><strong>Role:</strong> <span class="badge">{org.role}</span></p>
-            <p><strong>Joined:</strong> {new Date(org.addedAt).toLocaleDateString()}</p>
+            <p><strong>Joined:</strong> {new Date(org.joinedAt).toLocaleDateString()}</p>
           </div>
         ))}
       </div>
@@ -280,15 +282,30 @@ export const OrganizationDetailPage: FC<{
         <div class="card">
           <h3>👥 Team Members ({organization.members.length})</h3>
           {organization.members.map(member => (
-            <div key={member.email} style="padding: 5px 0;">
-              <span>{member.email}</span>
-              <span class="badge" style="margin-left: 10px;">{member.role}</span>
+            <div key={member.email} style="padding: 5px 0; display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <span>{member.email}</span>
+                <span class="badge" style="margin-left: 10px;">{member.role}</span>
+              </div>
+              {isAdmin && (
+                <button
+                  onclick={`removeMember('${organization.id}', '${member.userId}')`}
+                  style="background: #dc3545; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;"
+                  title="Remove member"
+                >
+                  Remove
+                </button>
+              )}
             </div>
           ))}
 
+          {/* Debug info */}
+          <div style="margin-top: 10px; padding: 10px; background: #f0f0f0; font-size: 12px;">
+            Debug: isOwner={isOwner ? 'true' : 'false'}, isAdmin={isAdmin ? 'true' : 'false'}, isMember={isMember ? 'true' : 'false'}
+          </div>
+
           {isAdmin && (
-            <form action="/api/organizations/members" method="post" style="margin-top: 15px; border-top: 1px solid #eee; padding-top: 15px;">
-              <input type="hidden" name="organizationId" value={organization.id} />
+            <form action={`/api/organizations/${organization.id}/members`} method="post" style="margin-top: 15px; border-top: 1px solid #eee; padding-top: 15px;">
               <div style="margin-bottom: 10px;">
                 <label for="email">Add Member:</label>
                 <input type="email" id="email" name="email" placeholder="member@example.com" required style="width: 100%; padding: 8px;" />
@@ -305,6 +322,34 @@ export const OrganizationDetailPage: FC<{
           )}
         </div>
       </div>
+
+      <script dangerouslySetInnerHTML={{
+        __html: `
+          async function removeMember(organizationId, userId) {
+            if (!confirm('Are you sure you want to remove this member?')) {
+              return;
+            }
+            
+            try {
+              const response = await fetch('/api/organizations/' + organizationId + '/members/' + userId, {
+                method: 'DELETE',
+                headers: {
+                  'Content-Type': 'application/json'
+                }
+              });
+              
+              if (response.ok) {
+                window.location.reload();
+              } else {
+                const error = await response.json();
+                alert('Failed to remove member: ' + (error.error || 'Unknown error'));
+              }
+            } catch (error) {
+              alert('Failed to remove member: ' + error.message);
+            }
+          }
+        `
+      }} />
     </Layout>
   );
 };
@@ -367,10 +412,19 @@ export const ProjectDetailPage: FC<{
             <p>No pending tasks</p>
           ) : (
             pendingTasks.map(task => (
-              <div key={task.id} style="border-bottom: 1px solid #eee; padding: 10px 0;">
-                <h4>{task.title}</h4>
-                {task.description && <p>{task.description}</p>}
-                {task.assignedTo && <p><strong>Assigned to:</strong> {task.assignedTo}</p>}
+              <div key={task.id} style="border-bottom: 1px solid #eee; padding: 10px 0; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                  <h4>{task.title}</h4>
+                  {task.description && <p>{task.description}</p>}
+                  {task.assignedTo && <p><strong>Assigned to:</strong> {task.assignedTo}</p>}
+                </div>
+                <form action={`/api/tasks/${task.id}/complete`} method="post" style="margin: 0;">
+                  <input type="hidden" name="organizationId" value={organization.id} />
+                  <input type="hidden" name="projectId" value={project.id} />
+                  <button type="submit" class="btn" style="background: #28a745; font-size: 12px; padding: 5px 10px;">
+                    ✓ Complete
+                  </button>
+                </form>
               </div>
             ))
           )}

@@ -196,3 +196,18 @@ What took **940 lines** of complex custom logic now takes **~400 lines** of clea
 Your TeamDO went from a complex organization management system to a simple business logic class, because all the organization complexity is now built into UserDO itself.
 
 **This is the power of proper abstraction!** 🚀
+
+
+
+# Test flow
+
+  1) Sign up as user1@example.com
+  2) Create organization "My Org"
+  3) Add user2@example.com as admin
+  4) Add user3@example.com as member
+  5) user1@example.com creates project "My Project"
+  6) user2@example.com creates task "My Task"
+  7) user3@example.com completes task "My Task"
+  8) user1@example.com deletes organization "My Org"
+  9) user2@example.com deletes project "My Project"
+  10) user3@example.com deletes task "My Task"

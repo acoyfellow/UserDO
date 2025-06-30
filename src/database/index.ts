@@ -34,7 +34,7 @@ export class UserDODatabase {
         schema,
         this.storage,
         this.currentUserId,
-        this.organizationContext,
+        () => options.organizationScoped ? this.organizationContext : undefined,
         this.broadcast
       );
       this.tables.set(name, table);
