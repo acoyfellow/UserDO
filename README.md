@@ -1,45 +1,40 @@
 # UserDO
 
-A Durable Object base class that provides user authentication, per-user data storage, and real-time updates for Cloudflare Workers applications.
+A Durable Object base class for building applications on Cloudflare Workers.
 
-## Features
+## Philosophy: Simple > Clever
 
-- **Authentication**: JWT-based user auth with signup, login, logout, and password reset
-- **Database Tables**: Type-safe SQLite tables with Zod schemas and query builder
-- **Key-Value Storage**: Per-user KV storage with automatic broadcasting
-- **Real-time Updates**: WebSocket connections with hibernation API support
-- **Worker Factory**: Pre-built Hono server with configurable binding names
-- **Browser Client**: Auto-reconnecting WebSocket client with change listeners
+UserDO follows pragmatic coding principles:
 
-## Core Components
+- Working simple code > theoretically "better" complex code
+- Every line is a liability - more code = more bugs
+- Don't fix what isn't broken - if it works reliably, resist refactoring
+- Ship then polish - working imperfect code > perfect unshipped code
 
-- **UserDO**: Extend this class to add your business logic
-- **createUserDOWorker()**: Creates a Hono server with auth endpoints
-- **createWebSocketHandler()**: Handles WebSocket upgrades separately
-- **UserDOClient**: Browser client for API calls and real-time subscriptions
+## What You Get
+
+- Authentication: JWT-based auth with signup, login, password reset
+- Organizations: Multi-user teams with roles and member management  
+- Database: Type-safe SQLite tables with Zod schemas and query builder
+- Key-Value Storage: Per-user KV storage with automatic broadcasting
+- Real-time: WebSocket connections with hibernation API support
+- Web Server: Pre-built Hono server with all endpoints configured
 
 ## Quick Start
 
-### 1. Define Your Schema
+### 1. Extend UserDO with Your Business Logic
 
 ```ts
-import { UserDO, type Env, type Table } from "userdo";
+import { UserDO, type Env } from "userdo";
 import { z } from "zod";
 
 const PostSchema = z.object({
   title: z.string(),
   content: z.string(),
-  createdAt: z.string(),
 });
 
-type Post = z.infer<typeof PostSchema>;
-```
-
-### 2. Extend UserDO
-
-```ts
-export class MyAppDO extends UserDO {
-  posts: Table<Post>;
+export class BlogDO extends UserDO {
+  posts: any;
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
@@ -47,11 +42,7 @@ export class MyAppDO extends UserDO {
   }
 
   async createPost(title: string, content: string) {
-    return await this.posts.create({
-      title,
-      content,
-      createdAt: new Date().toISOString(),
-    });
+    return await this.posts.create({ title, content });
   }
 
   async getPosts() {
@@ -60,28 +51,27 @@ export class MyAppDO extends UserDO {
 }
 ```
 
-### 3. Create Your Worker
+### 2. Create Your Worker
 
 ```ts
-import { createUserDOWorker, createWebSocketHandler, getUserDOFromContext } from 'userdo';
+import { createUserDOWorker, createWebSocketHandler } from 'userdo';
 
-// Create worker with custom binding name
-const app = createUserDOWorker('MY_APP_DO');
-const wsHandler = createWebSocketHandler('MY_APP_DO');
+const app = createUserDOWorker('BLOG_DO');
+const wsHandler = createWebSocketHandler('BLOG_DO');
 
-// Add custom routes
+// Add your business endpoints
 app.post('/api/posts', async (c) => {
   const user = c.get('user');
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
   
   const { title, content } = await c.req.json();
-  const myAppDO = getUserDOFromContext(c, user.email, 'MY_APP_DO') as MyAppDO;
-  const post = await myAppDO.createPost(title, content);
+  const blogDO = getUserDOFromContext(c, user.email, 'BLOG_DO') as BlogDO;
+  const post = await blogDO.createPost(title, content);
   
   return c.json({ post });
 });
 
-// Export worker with WebSocket support
+// Export with WebSocket support
 export default {
   async fetch(request: Request, env: any, ctx: any): Promise<Response> {
     if (request.headers.get('upgrade') === 'websocket') {
@@ -92,24 +82,94 @@ export default {
 };
 ```
 
+### 3. Configure wrangler.jsonc
+
+```jsonc
+{
+  "main": "src/index.ts",
+  "vars": {
+    "JWT_SECRET": "your-jwt-secret-here"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "BLOG_DO", "class_name": "BlogDO" }
+    ]
+  }
+}
+```
+
 ## Built-in API Endpoints
+
+These endpoints work without additional configuration:
 
 ### Authentication
 - `POST /api/signup` - Create user account
-- `POST /api/login` - Authenticate user
-- `POST /api/logout` - End user session
-- `GET /api/me` - Get current user info
+- `POST /api/login` - Authenticate user  
+- `POST /api/logout` - End session
+- `GET /api/me` - Get current user
 
-### Password Reset
-- `POST /api/password-reset/request` - Generate reset token
-- `POST /api/password-reset/confirm` - Reset password with token
+### Organizations (Multi-user Teams)
+- `POST /api/organizations` - Create organization
+- `GET /api/organizations` - Get owned organizations
+- `GET /api/organizations/:id` - Get specific organization
+- `POST /api/organizations/:id/members` - Add member (auto-invites)
+- `DELETE /api/organizations/:id/members/:userId` - Remove member
 
-### Data Operations
+### Data Storage
 - `GET /data` - Get user's key-value data
 - `POST /data` - Set user's key-value data
 
 ### Real-time
 - `GET /api/ws` - WebSocket connection for live updates
+
+## Organization-Scoped Applications
+
+UserDO handles multi-user team applications:
+
+```ts
+export class TeamDO extends UserDO {
+  projects: any;
+  tasks: any;
+
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env);
+    
+    // Data automatically isolated per organization
+    this.projects = this.table('projects', ProjectSchema, { organizationScoped: true });
+    this.tasks = this.table('tasks', TaskSchema, { organizationScoped: true });
+  }
+
+  async createProject(name: string, organizationId: string) {
+    await this.getOrganization(organizationId); // Built-in access control
+    this.setOrganizationContext(organizationId); // Switch data scope
+    return await this.projects.create({ name }); // Auto-scoped to org
+  }
+}
+
+// Member management:
+await teamDO.addOrganizationMember(orgId, 'user@example.com', 'admin');
+// Stores invitation in target user's UserDO
+
+const { memberOrganizations } = await userDO.getOrganizations();  
+// Returns all invitations/memberships for this user
+```
+
+## Examples
+
+### [Organizations](examples/organizations/) 
+Complete team project management system - Organizations → Projects → Tasks with member management, role-based access control, and real-time collaboration.
+
+### [Hono Integration](examples/hono/)
+Full-featured web application - Complete auth flows, data management, WebSocket integration, and browser client usage patterns.
+
+### [Alchemy Deployment](examples/alchemy/)
+Production deployment - Ready-to-deploy configuration for Alchemy.run with environment setup and scaling considerations.
+
+### [Effect Integration](examples/effect/)
+Functional programming - Integration with Effect library for advanced error handling and functional composition patterns.
+
+### [Multi-tenant](examples/multi-tenant/)
+Multiple isolated projects - How to run multiple independent applications using different UserDO binding names.
 
 ## Browser Client
 
@@ -122,140 +182,89 @@ const client = new UserDOClient('/api');
 await client.signup('user@example.com', 'password');
 await client.login('user@example.com', 'password');
 
-// Key-value operations
-await client.set('preferences', { theme: 'dark' });
-const prefs = await client.get('preferences');
-
-// Watch for changes
-const unsubscribe = client.onChange('preferences', data => {
+// Real-time data
+client.onChange('preferences', data => {
   console.log('Preferences updated:', data);
 });
 
-// Collections (if you have custom endpoints)
-const posts = client.collection('posts');
-await posts.create({ title: 'Hello', content: 'World' });
+// Organizations
+const orgs = await client.get('/organizations');
 ```
 
 ## Database Operations
 
-### Table Creation
+### Simple Tables
 ```ts
-// In your UserDO constructor
+// User-scoped data (private to each user)
 this.posts = this.table('posts', PostSchema, { userScoped: true });
+
+// Organization-scoped data (shared within teams)  
+this.projects = this.table('projects', ProjectSchema, { organizationScoped: true });
 ```
 
 ### CRUD Operations
 ```ts
 // Create
-const post = await this.posts.create({ title, content, createdAt });
+const post = await this.posts.create({ title, content });
 
 // Read
+const posts = await this.posts.orderBy('createdAt', 'desc').get();
 const post = await this.posts.findById(id);
-const posts = await this.posts.get();
 
-// Update
-const updated = await this.posts.update(id, { title: 'New Title' });
+// Update  
+await this.posts.update(id, { title: 'New Title' });
 
 // Delete
 await this.posts.delete(id);
-```
 
-### Queries
-```ts
-// Filter and sort
-const posts = await this.posts
+// Query
+const results = await this.posts
   .where('title', '==', 'Hello')
-  .orderBy('createdAt', 'desc')
   .limit(10)
   .get();
-
-// Count
-const count = await this.posts.count();
 ```
 
 ## Real-time Events
 
 Data changes automatically broadcast WebSocket events:
 
-- `kv:{key}` - When key-value data changes
-- `table:{tableName}` - When table data changes (create/update/delete)
-
 ```ts
-// Listen for specific events
-client.onChange('preferences', data => console.log('Prefs changed:', data));
+// Listen for specific data changes
+client.onChange('preferences', data => console.log('Updated:', data));
 
-// Listen for table changes
-const posts = client.collection('posts');
-posts.onChange(data => console.log('Post changed:', data));
+// Listen for table changes  
+client.onChange('table:posts', event => {
+  console.log('Post changed:', event.type, event.data);
+});
 ```
 
-## Multiple Projects
+## Decision Framework
 
-Use different binding names to isolate projects:
+Before adding complexity, ask:
 
-```ts
-// Project 1: Blog
-const blogWorker = createUserDOWorker('BLOG_DO');
+1. Is there a measurable problem? (Not theoretical)
+2. Is the current solution causing actual pain? (Check metrics)  
+3. What's the cost/benefit? (Time investment vs improvement)
 
-// Project 2: Shop
-const shopWorker = createUserDOWorker('SHOP_DO');
+### Red Flags
+- Refactoring for hypothetical benefits
+- Adding patterns without clear current needs
+- Replacing working code with more complex solutions
+- "The framework docs recommend..." (without context)
 
-// Default binding
-const defaultWorker = createUserDOWorker(); // Uses 'USERDO'
-```
+### Valid Reasons
+- Reproducible bugs affecting users
+- Measured performance bottlenecks  
+- Blocking required features
+- Security vulnerabilities
 
-## Configuration
+## Architecture
 
-### wrangler.jsonc
-```jsonc
-{
-  "main": "src/index.ts",
-  "vars": {
-    "JWT_SECRET": "your-jwt-secret-here"
-  },
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "MY_APP_DO",
-        "class_name": "MyAppDO"
-      }
-    ]
-  }
-}
-```
-
-### Environment Variables
-- `JWT_SECRET` (required) - Secret for signing JWT tokens
-
-## Authentication Methods
-
-```ts
-// All methods return { user, token, refreshToken }
-await userDO.signup({ email, password });
-await userDO.login({ email, password });
-
-// Token operations
-await userDO.verifyToken({ token });
-await userDO.refreshToken({ refreshToken });
-
-// Password management
-await userDO.changePassword({ oldPassword, newPassword });
-await userDO.resetPassword({ newPassword });
-
-// Session management
-await userDO.logout();
-```
-
-## Type Safety
-
-All endpoints are typed with TypeScript and validated with Zod:
-
-```ts
-import type { UserDOEndpoints, EndpointRequest, EndpointResponse } from 'userdo';
-
-type SignupRequest = EndpointRequest<'POST /api/signup'>;
-type SignupResponse = EndpointResponse<'POST /api/signup'>;
-```
+- Per-user isolation: Each user gets their own Durable Object instance
+- Email-based routing: User emails determine Durable Object IDs  
+- WebSocket hibernation: Uses Cloudflare's hibernation API for WebSocket handling
+- Type-safe schemas: Zod validation for all operations
+- Automatic broadcasting: Real-time events for all data changes
 
 ## Installation
 
@@ -263,42 +272,11 @@ type SignupResponse = EndpointResponse<'POST /api/signup'>;
 npm install userdo
 ```
 
-## Examples
+## Pragmatic Mantras
 
-Complete working examples:
-- [`examples/hono`](examples/hono) - Full-featured Hono integration
-- [`examples/alchemy`](examples/alchemy) - Alchemy.run deployment
-- [`examples/effect`](examples/effect) - Effect library integration
-- [`examples/multi-tenant`](examples/multi-tenant) - Multi-tenant patterns
+- "The perfect is the enemy of the good"
+- "You ain't gonna need it" (YAGNI)  
+- "Leave it better than you found it" (but only if it's actually better)
+- "Working simple code beats theoretically better complex code"
 
-## Architecture
-
-- **Per-user isolation**: Each user gets their own Durable Object instance
-- **Email-based routing**: User emails are hashed to generate Durable Object IDs
-- **WebSocket hibernation**: Uses Cloudflare's hibernation API for efficient WebSocket handling
-- **Type-safe schemas**: Zod validation for all data operations
-- **Automatic broadcasting**: Real-time events for all data changes
-
-## Security
-
-- PBKDF2 password hashing with WebCrypto
-- JWT tokens with configurable expiration
-- HTTP-only cookies for token storage
-- Per-user data isolation by default
-- Rate limiting on authentication endpoints
-
-## Limitations
-
-- Requires Cloudflare Workers environment
-- SQLite storage is per-Durable Object instance
-- WebSocket connections are limited by Durable Object hibernation limits
-- No built-in admin interface
-- Cannot be self-hosted (requires Cloudflare infrastructure)
-
-## Recent Updates
-
-- ✅ WebSocket hibernation API support
-- ✅ Configurable Durable Object binding names
-- ✅ Auto-reconnecting browser client
-- ✅ Real-time change listeners for KV and tables
-- ✅ Separate WebSocket handler to avoid Hono serialization issues
+UserDO: A base class for building applications without unnecessary complexity.

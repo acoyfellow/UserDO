@@ -22,6 +22,27 @@ type User = {
 
 const isRequestSecure = (c: Context) => new URL(c.req.url).protocol === 'https:';
 
+// Shared logout handler to avoid duplication
+const handleLogout = (getUserDO: (c: Context, email: string) => UserDO) => async (c: Context) => {
+  try {
+    const token = getCookie(c, 'token') || '';
+    const tokenParts = token.split('.');
+    if (tokenParts.length === 3 && tokenParts[1]) {
+      const payload = JSON.parse(atob(tokenParts[1]));
+      const email = payload.email?.toLowerCase();
+      if (email) {
+        const userDO = getUserDO(c, email);
+        await userDO.logout();
+      }
+    }
+  } catch (e) {
+    console.error('Logout error', e);
+  }
+  deleteCookie(c, 'token');
+  deleteCookie(c, 'refreshToken');
+  return c.redirect('/');
+};
+
 const app = new Hono<{ Bindings: Env, Variables: { user: User } }>()
 
 // --- CLEAN AUTH MIDDLEWARE ---
@@ -222,26 +243,9 @@ app.post('/login', async (c) => {
   }
 })
 
-// logout
-app.post('/logout', async (c) => {
-  try {
-    const token = getCookie(c, 'token') || '';
-    const tokenParts = token.split('.');
-    if (tokenParts.length === 3 && tokenParts[1]) {
-      const payload = JSON.parse(atob(tokenParts[1]));
-      const email = payload.email?.toLowerCase();
-      if (email) {
-        const userDO = getUserDOFromContext(c, email);
-        await userDO.logout();
-      }
-    }
-  } catch (e) {
-    console.error('Logout error', e);
-  }
-  deleteCookie(c, 'token');
-  deleteCookie(c, 'refreshToken');
-  return c.redirect('/');
-})
+// logout - both GET and POST for convenience
+app.get('/logout', handleLogout(getUserDOFromContext));
+app.post('/logout', handleLogout(getUserDOFromContext));
 
 // --- KV STORAGE ENDPOINTS ---
 app.get("/data", async (c): Promise<Response> => {
@@ -304,6 +308,160 @@ app.get('/protected/profile', (c): Response => {
     return c.json(errorResponse, 401);
   }
   return c.json({ ok: true, user });
+});
+
+// --- ORGANIZATION ENDPOINTS ---
+
+// Create organization
+app.post('/api/organizations', async (c): Promise<Response> => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+      return c.json(errorResponse, 401);
+    }
+
+    let name: string;
+    const contentType = c.req.header('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const body = await c.req.json();
+      name = body.name;
+    } else {
+      const formData = await c.req.formData();
+      name = formData.get('name') as string;
+    }
+
+    if (!name) {
+      const errorResponse: ErrorResponse = { error: 'Organization name is required' };
+      return c.json(errorResponse, 400);
+    }
+
+    const userDO = getUserDOFromContext(c, user.email);
+    const result = await userDO.createOrganization(name);
+
+    if (contentType.includes('application/json')) {
+      return c.json(result);
+    } else {
+      return c.redirect('/organizations');
+    }
+  } catch (e: any) {
+    const errorResponse: ErrorResponse = { error: e.message || 'Failed to create organization' };
+    return c.json(errorResponse, 400);
+  }
+});
+
+// Get user's organizations
+app.get('/api/organizations', async (c): Promise<Response> => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+      return c.json(errorResponse, 401);
+    }
+
+    const userDO = getUserDOFromContext(c, user.email);
+    const result = await userDO.getOrganizations();
+    return c.json(result);
+  } catch (e: any) {
+    const errorResponse: ErrorResponse = { error: e.message || 'Failed to get organizations' };
+    return c.json(errorResponse, 400);
+  }
+});
+
+// Get specific organization
+app.get('/api/organizations/:id', async (c): Promise<Response> => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+      return c.json(errorResponse, 401);
+    }
+
+    const organizationId = c.req.param('id');
+    if (!organizationId) {
+      const errorResponse: ErrorResponse = { error: 'Organization ID is required' };
+      return c.json(errorResponse, 400);
+    }
+
+    const userDO = getUserDOFromContext(c, user.email);
+    const result = await userDO.getOrganization(organizationId);
+    return c.json(result);
+  } catch (e: any) {
+    const errorResponse: ErrorResponse = { error: e.message || 'Failed to get organization' };
+    return c.json(errorResponse, 400);
+  }
+});
+
+// Add member to organization
+app.post('/api/organizations/:id/members', async (c): Promise<Response> => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+      return c.json(errorResponse, 401);
+    }
+
+    const organizationId = c.req.param('id');
+    if (!organizationId) {
+      const errorResponse: ErrorResponse = { error: 'Organization ID is required' };
+      return c.json(errorResponse, 400);
+    }
+
+    let email: string, role: 'admin' | 'member';
+    const contentType = c.req.header('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const body = await c.req.json();
+      email = body.email;
+      role = body.role || 'member';
+    } else {
+      const formData = await c.req.formData();
+      email = formData.get('email') as string;
+      role = (formData.get('role') as 'admin' | 'member') || 'member';
+    }
+
+    if (!email) {
+      const errorResponse: ErrorResponse = { error: 'Email is required' };
+      return c.json(errorResponse, 400);
+    }
+
+    const userDO = getUserDOFromContext(c, user.email);
+    const result = await userDO.addOrganizationMember(organizationId, email.toLowerCase(), role);
+
+    if (contentType.includes('application/json')) {
+      return c.json(result);
+    } else {
+      return c.redirect(`/organizations/${organizationId}`);
+    }
+  } catch (e: any) {
+    const errorResponse: ErrorResponse = { error: e.message || 'Failed to add member' };
+    return c.json(errorResponse, 400);
+  }
+});
+
+// Remove member from organization
+app.delete('/api/organizations/:id/members/:userId', async (c): Promise<Response> => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+      return c.json(errorResponse, 401);
+    }
+
+    const organizationId = c.req.param('id');
+    const userId = c.req.param('userId');
+
+    if (!organizationId || !userId) {
+      const errorResponse: ErrorResponse = { error: 'Organization ID and User ID are required' };
+      return c.json(errorResponse, 400);
+    }
+
+    const userDO = getUserDOFromContext(c, user.email);
+    const result = await userDO.removeOrganizationMember(organizationId, userId);
+    return c.json(result);
+  } catch (e: any) {
+    const errorResponse: ErrorResponse = { error: e.message || 'Failed to remove member' };
+    return c.json(errorResponse, 400);
+  }
 });
 
 
@@ -511,25 +669,9 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
     }
   })
 
-  app.post('/logout', async (c) => {
-    try {
-      const token = getCookie(c, 'token') || '';
-      const tokenParts = token.split('.');
-      if (tokenParts.length === 3 && tokenParts[1]) {
-        const payload = JSON.parse(atob(tokenParts[1]));
-        const email = payload.email?.toLowerCase();
-        if (email) {
-          const userDO = getUserDO(c, email);
-          await userDO.logout();
-        }
-      }
-    } catch (e) {
-      console.error('Logout error', e);
-    }
-    deleteCookie(c, 'token');
-    deleteCookie(c, 'refreshToken');
-    return c.redirect('/');
-  })
+  // logout - both GET and POST for convenience
+  app.get('/logout', handleLogout(getUserDO));
+  app.post('/logout', handleLogout(getUserDO));
 
   // Data endpoints
   app.get("/data", async (c): Promise<Response> => {
@@ -559,6 +701,7 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
       if (contentType.includes('application/json')) {
         const body = await c.req.json();
         key = body.key;
+
         value = body.value;
       } else {
         const formData = await c.req.formData();
@@ -600,6 +743,160 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
     return c.json({ ok: true, user });
   });
 
+  // --- ORGANIZATION ENDPOINTS ---
+
+  // Create organization
+  app.post('/api/organizations', async (c) => {
+    try {
+      const user = c.get('user');
+      if (!user) {
+        const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+        return c.json(errorResponse, 401);
+      }
+
+      let name: string;
+      const contentType = c.req.header('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const body = await c.req.json();
+        name = body.name;
+      } else {
+        const formData = await c.req.formData();
+        name = formData.get('name') as string;
+      }
+
+      if (!name) {
+        const errorResponse: ErrorResponse = { error: 'Organization name is required' };
+        return c.json(errorResponse, 400);
+      }
+
+      const userDO = getUserDO(c, user.email);
+      const result = await userDO.createOrganization(name);
+
+      if (contentType.includes('application/json')) {
+        return c.json(result);
+      } else {
+        return c.redirect('/organizations');
+      }
+    } catch (e: any) {
+      const errorResponse: ErrorResponse = { error: e.message || 'Failed to create organization' };
+      return c.json(errorResponse, 400);
+    }
+  });
+
+  // Get user's organizations
+  app.get('/api/organizations', async (c) => {
+    try {
+      const user = c.get('user');
+      if (!user) {
+        const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+        return c.json(errorResponse, 401);
+      }
+
+      const userDO = getUserDO(c, user.email);
+      const result = await userDO.getOrganizations();
+      return c.json(result);
+    } catch (e: any) {
+      const errorResponse: ErrorResponse = { error: e.message || 'Failed to get organizations' };
+      return c.json(errorResponse, 400);
+    }
+  });
+
+  // Get specific organization
+  app.get('/api/organizations/:id', async (c) => {
+    try {
+      const user = c.get('user');
+      if (!user) {
+        const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+        return c.json(errorResponse, 401);
+      }
+
+      const organizationId = c.req.param('id');
+      if (!organizationId) {
+        const errorResponse: ErrorResponse = { error: 'Organization ID is required' };
+        return c.json(errorResponse, 400);
+      }
+
+      const userDO = getUserDO(c, user.email);
+      const result = await userDO.getOrganization(organizationId);
+      return c.json(result);
+    } catch (e: any) {
+      const errorResponse: ErrorResponse = { error: e.message || 'Failed to get organization' };
+      return c.json(errorResponse, 400);
+    }
+  });
+
+  // Add member to organization
+  app.post('/api/organizations/:id/members', async (c) => {
+    try {
+      const user = c.get('user');
+      if (!user) {
+        const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+        return c.json(errorResponse, 401);
+      }
+
+      const organizationId = c.req.param('id');
+      if (!organizationId) {
+        const errorResponse: ErrorResponse = { error: 'Organization ID is required' };
+        return c.json(errorResponse, 400);
+      }
+
+      let email: string, role: 'admin' | 'member';
+      const contentType = c.req.header('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const body = await c.req.json();
+        email = body.email;
+        role = body.role || 'member';
+      } else {
+        const formData = await c.req.formData();
+        email = formData.get('email') as string;
+        role = (formData.get('role') as 'admin' | 'member') || 'member';
+      }
+
+      if (!email) {
+        const errorResponse: ErrorResponse = { error: 'Email is required' };
+        return c.json(errorResponse, 400);
+      }
+
+      const userDO = getUserDO(c, user.email);
+      const result = await userDO.addOrganizationMember(organizationId, email.toLowerCase(), role);
+
+      if (contentType.includes('application/json')) {
+        return c.json(result);
+      } else {
+        return c.redirect(`/organizations/${organizationId}`);
+      }
+    } catch (e: any) {
+      const errorResponse: ErrorResponse = { error: e.message || 'Failed to add member' };
+      return c.json(errorResponse, 400);
+    }
+  });
+
+  // Remove member from organization
+  app.delete('/api/organizations/:id/members/:userId', async (c) => {
+    try {
+      const user = c.get('user');
+      if (!user) {
+        const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+        return c.json(errorResponse, 401);
+      }
+
+      const organizationId = c.req.param('id');
+      const userId = c.req.param('userId');
+
+      if (!organizationId || !userId) {
+        const errorResponse: ErrorResponse = { error: 'Organization ID and User ID are required' };
+        return c.json(errorResponse, 400);
+      }
+
+      const userDO = getUserDO(c, user.email);
+      const result = await userDO.removeOrganizationMember(organizationId, userId);
+      return c.json(result);
+    } catch (e: any) {
+      const errorResponse: ErrorResponse = { error: e.message || 'Failed to remove member' };
+      return c.json(errorResponse, 400);
+    }
+  });
+
   // Note: Generic collection endpoints removed - apps should implement specific routes
   // like /api/posts, /api/comments, etc. for proper database integration
 
@@ -611,6 +908,7 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
       endpoints: {
         auth: ['/api/signup', '/api/login', '/api/logout', '/api/me'],
         data: ['/data'],
+        organizations: ['/api/organizations', '/api/organizations/:id', '/api/organizations/:id/members'],
         collections: ['/api/:collection'],
         passwordReset: ['/api/password-reset/request', '/api/password-reset/confirm']
       },

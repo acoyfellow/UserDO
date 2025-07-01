@@ -25,34 +25,25 @@ class UserDOClient {
   }
 
   private async checkAuthStatus() {
-    console.log('🔍 Checking auth status...');
-
     try {
       // Check if we're authenticated via cookies (same mechanism as server)
       const url = `${this.baseUrl}/me`;
-      console.log('🔍 Fetching auth status from:', url);
 
       const res = await fetch(url, {
         credentials: 'include' // Ensure cookies are sent
       });
 
-      console.log('🔍 Auth response status:', res.status);
-
       if (res.ok) {
         const data = await res.json() as { user: { id: string; email: string } };
-        console.log('🔍 Auth response data:', data);
         this.user = data.user;
       } else {
-        const errorText = await res.text();
-        console.log('🔍 Auth failed, response:', errorText);
         this.user = null;
       }
     } catch (error) {
-      console.error('🔍 Auth check error:', error);
+      console.error('Auth check error:', error);
       this.user = null;
     }
 
-    console.log('🔍 Final auth state:', this.user);
     this.emitAuthChange();
   }
 

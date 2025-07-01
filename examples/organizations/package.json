@@ -1,0 +1,22 @@
+{
+  "name": "userdo-clean-organizations-example",
+  "version": "1.0.0",
+  "description": "Clean Organizations Example - Simplified with built-in UserDO organization features",
+  "main": "index.tsx",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@tsndr/cloudflare-worker-jwt": "^3.2.0",
+    "hono": "^4.8.2",
+    "reconnecting-websocket": "^4.4.0",
+    "userdo": "link:userdo",
+    "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241127.0",
+    "wrangler": "^4.21.0",
+    "typescript": "^5.8.3"
+  }
+}

@@ -3,18 +3,24 @@ import { GenericTable } from './table';
 
 export interface TableOptions {
   userScoped?: boolean;
+  organizationScoped?: boolean;
   indexes?: string[];
 }
 
 export class UserDODatabase {
   private tables = new Map<string, GenericTable<any>>();
   private schemas = new Map<string, z.ZodSchema>();
+  private organizationContext?: string;
 
   constructor(
     private storage: DurableObjectStorage,
     private currentUserId: string,
     private broadcast?: (event: string, data: any) => void
   ) { }
+
+  setOrganizationContext(organizationId?: string): void {
+    this.organizationContext = organizationId;
+  }
 
   table<T extends z.ZodSchema>(
     name: string,
@@ -28,6 +34,7 @@ export class UserDODatabase {
         schema,
         this.storage,
         this.currentUserId,
+        () => options.organizationScoped ? this.organizationContext : undefined,
         this.broadcast
       );
       this.tables.set(name, table);
@@ -46,7 +53,8 @@ export class UserDODatabase {
       data TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      user_id TEXT${options.userScoped ? ' NOT NULL' : ''}
+      user_id TEXT${options.userScoped ? ' NOT NULL' : ''},
+      organization_id TEXT${options.organizationScoped ? ' NOT NULL' : ''}
     )`;
 
     try {

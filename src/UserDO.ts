@@ -14,6 +14,35 @@ const UserSchema = z.object({
 });
 type User = z.infer<typeof UserSchema>;
 
+// --- Organization Schemas ---
+const OrganizationSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1),
+  ownerId: z.string(),
+  createdAt: z.string(),
+});
+
+const OrganizationMemberSchema = z.object({
+  id: z.string(),
+  organizationId: z.string(),
+  userId: z.string(),
+  email: z.string().email(),
+  role: z.enum(['admin', 'member']), // owner is implicit
+  createdAt: z.string(),
+});
+
+const OrganizationMembershipSchema = z.object({
+  organizationId: z.string(),
+  organizationName: z.string(),
+  ownerEmail: z.string(),
+  role: z.enum(['admin', 'member']),
+  joinedAt: z.string(),
+});
+
+type Organization = z.infer<typeof OrganizationSchema>;
+type OrganizationMember = z.infer<typeof OrganizationMemberSchema>;
+type OrganizationMembership = z.infer<typeof OrganizationMembershipSchema>;
+
 // --- Zod Schemas for endpoint validation ---
 const SignupSchema = z.object({
   email: z.string().email(),
@@ -61,19 +90,17 @@ export async function hashEmailForId(email: string): Promise<string> {
   return hashHex;
 }
 
-// Helper function to get UserDO with automatic email hashing
-// Maintains almost the same API as env.MY_APP_DO.get(env.MY_APP_DO.idFromName(email))
-export async function getUserDO<T extends UserDO>(
-  namespace: DurableObjectNamespace,
+// Helper function to get UserDO 
+// Maintains the same API as env.MY_APP_DO.get(env.MY_APP_DO.idFromName(email))
+export function getUserDO<T extends UserDO>(
+  namespace: DurableObjectNamespace<T>,
   email: string
-): Promise<T> {
-  const hashedEmail = await hashEmailForId(email);
-  return namespace.get(namespace.idFromName(hashedEmail)) as unknown as T;
+): T {
+  return namespace.get(namespace.idFromName(email)) as unknown as T;
 }
 
-const getDO = async (env: Env, email: string): Promise<UserDO> => {
-  const hashedEmail = await hashEmailForId(email);
-  return env.USERDO.get(env.USERDO.idFromName(hashedEmail)) as unknown as UserDO;
+const getDO = (env: Env, email: string): UserDO => {
+  return env.USERDO.get(env.USERDO.idFromName(email)) as unknown as UserDO;
 };
 
 async function hashPassword(
@@ -106,8 +133,8 @@ export async function migrateUserEmail(
 ): Promise<{ ok: boolean; error?: string }> {
   oldEmail = oldEmail.toLowerCase();
   newEmail = newEmail.toLowerCase();
-  const oldDO = await getDO(env, oldEmail);
-  const newDO = await getDO(env, newEmail);
+  const oldDO = getDO(env, oldEmail);
+  const newDO = getDO(env, newEmail);
   try {
     const user = await oldDO.raw();
     user.email = newEmail;
@@ -126,6 +153,10 @@ export class UserDO extends DurableObject {
   protected env: Env;
   protected database: UserDODatabase;
 
+  // Organization tables (for organizations I OWN)
+  protected ownedOrganizations: any;
+  protected organizationMembers: any;
+
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
     this.state = state;
@@ -136,6 +167,10 @@ export class UserDO extends DurableObject {
       this.getCurrentUserId(),
       this.broadcast.bind(this)
     );
+
+    // Initialize organization tables
+    this.ownedOrganizations = this.table('owned_organizations', OrganizationSchema, { userScoped: true });
+    this.organizationMembers = this.table('organization_members', OrganizationMemberSchema, { userScoped: true });
   }
 
   private async checkRateLimit(): Promise<void> {
@@ -327,7 +362,7 @@ export class UserDO extends DurableObject {
     return { resetToken };
   }
 
-  // Reset password with token verification
+  // Reset password with token
   async resetPasswordWithToken(
     { resetToken, newPassword }: { resetToken: string; newPassword: string }
   ): Promise<{ ok: boolean }> {
@@ -337,10 +372,24 @@ export class UserDO extends DurableObject {
         throw new Error('Invalid reset token');
       }
 
-      // Token is valid, proceed with password reset
-      return await this.resetPassword({ newPassword });
+      const user = await this.storage.get<User>(AUTH_DATA_KEY);
+      if (!user) throw new Error('User not found');
+
+      // Validate new password
+      const parsed = SignupSchema.shape.password.safeParse(newPassword);
+      if (!parsed.success) {
+        throw new Error('Invalid new password: ' + JSON.stringify(parsed.error.flatten()));
+      }
+
+      // Hash new password
+      const { hash, salt } = await hashPassword(newPassword);
+      user.passwordHash = hash;
+      user.salt = salt;
+      await this.storage.put(AUTH_DATA_KEY, user);
+
+      return { ok: true };
     } catch (err) {
-      throw new Error('Invalid or expired reset token');
+      throw new Error('Invalid reset token');
     }
   }
 
@@ -376,21 +425,21 @@ export class UserDO extends DurableObject {
     key: string,
     value: unknown
   ): Promise<{ ok: boolean }> {
-    if (isReservedKey(key)) throw new Error("Key is reserved");
+    if (isReservedKey(key)) {
+      throw new Error(`Key "${key}" is reserved`);
+    }
     await this.storage.put(key, value);
-
-    // Broadcast KV change
-    this.broadcast(`kv:${key}`, { key, value });
-
+    this.broadcast(`kv:${key}`, value);
     return { ok: true };
   }
 
   async get(
     key: string
   ): Promise<unknown> {
-    if (isReservedKey(key)) throw new Error("Key is reserved");
-    const value = await this.storage.get(key);
-    return value;
+    if (isReservedKey(key)) {
+      throw new Error(`Key "${key}" is reserved`);
+    }
+    return await this.storage.get(key);
   }
 
   async refreshToken(
@@ -451,6 +500,226 @@ export class UserDO extends DurableObject {
     return this.revokeAllRefreshTokens();
   }
 
+  // === Organization Management ===
+
+  setOrganizationContext(organizationId?: string): void {
+    this.database.setOrganizationContext(organizationId);
+  }
+
+  async createOrganization(name: string): Promise<{ organization: Organization }> {
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
+    if (!user) throw new Error('User not found');
+
+    const organization: Organization = {
+      id: crypto.randomUUID(),
+      name,
+      ownerId: user.id,
+      createdAt: new Date().toISOString(),
+    };
+
+    // Store organization in my UserDO (I own it)
+    await this.ownedOrganizations.create(organization);
+
+    this.broadcast('organization:created', { organization });
+
+    return { organization };
+  }
+
+  async getOrganizations(): Promise<{ organizations: Organization[]; memberOrganizations: OrganizationMembership[] }> {
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
+    if (!user) throw new Error('User not found');
+
+    // Get organizations I own
+    const ownedOrganizations = await this.ownedOrganizations.getAll();
+
+    // Get organizations I'm a member of
+    const memberOrganizations = await this.storage.get<OrganizationMembership[]>('organization_memberships') || [];
+
+    return {
+      organizations: ownedOrganizations,
+      memberOrganizations
+    };
+  }
+
+  async getOrganization(organizationId: string): Promise<{ organization: Organization; members: OrganizationMember[]; isOwner: boolean }> {
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
+    if (!user) throw new Error('User not found');
+
+    // First check if I own this organization
+    const ownedOrg = await this.ownedOrganizations.findById(organizationId);
+
+    if (ownedOrg) {
+      // I own it - get members from my UserDO
+      const members = await this.organizationMembers.where('organizationId', '==', organizationId).get();
+      return { organization: ownedOrg, members, isOwner: true };
+    }
+
+    // Check if I'm a member of this organization
+    const memberships = await this.storage.get<OrganizationMembership[]>('organization_memberships') || [];
+    const membership = memberships.find(m => m.organizationId === organizationId);
+
+    if (!membership) {
+      throw new Error('Not a member of this organization');
+    }
+
+    // Get organization data from the owner's UserDO
+    const namespace = this.findUserDONamespace();
+    const ownerDO = getUserDO(namespace, membership.ownerEmail);
+    const ownerOrgData = await ownerDO.getOwnedOrganization(organizationId);
+
+    return {
+      organization: ownerOrgData.organization,
+      members: ownerOrgData.members,
+      isOwner: false
+    };
+  }
+
+  // Helper method for cross-UserDO access
+  async getOwnedOrganization(organizationId: string): Promise<{ organization: Organization; members: OrganizationMember[] }> {
+    const organization = await this.ownedOrganizations.findById(organizationId);
+
+    if (!organization) throw new Error('Organization not found');
+
+    const members = await this.organizationMembers.where('organizationId', '==', organizationId).get();
+    return { organization, members };
+  }
+
+  async addOrganizationMember(
+    organizationId: string,
+    email: string,
+    role: 'admin' | 'member' = 'member'
+  ): Promise<{ member: OrganizationMember }> {
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
+    if (!user) throw new Error('User not found');
+
+    // Check if I own this organization
+    const organization = await this.ownedOrganizations.findById(organizationId);
+    if (!organization) {
+      throw new Error('Organization not found or you do not own it');
+    }
+
+    // Get target user ID from email
+    const targetUserId = await hashEmailForId(email);
+
+    // Check if member already exists
+    const existingMember = await this.organizationMembers
+      .where('organizationId', '==', organizationId)
+      .where('email', '==', email.toLowerCase())
+      .first();
+
+    if (existingMember) {
+      throw new Error('User is already a member of this organization');
+    }
+
+    const member: OrganizationMember = {
+      id: crypto.randomUUID(),
+      organizationId,
+      userId: targetUserId,
+      email: email.toLowerCase(),
+      role,
+      createdAt: new Date().toISOString(),
+    };
+
+    // Store member in my UserDO (I own the organization)
+    await this.organizationMembers.create(member);
+
+    // Add membership to the target user's UserDO
+    try {
+      const namespace = this.findUserDONamespace();
+      const targetUserDO = getUserDO(namespace, email.toLowerCase());
+
+      await targetUserDO.addMembership({
+        organizationId,
+        organizationName: organization.name,
+        ownerEmail: user.email,
+        role,
+        joinedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error('Failed to add membership to target user:', error);
+      console.log('Could not deliver membership immediately - will be available when user signs up');
+    }
+
+    this.broadcast('organization:member_added', { organizationId, member });
+
+    return { member };
+  }
+
+  // Helper method to add membership to a user's UserDO
+  async addMembership(membership: OrganizationMembership): Promise<void> {
+    const memberships = await this.storage.get<OrganizationMembership[]>('organization_memberships') || [];
+
+    // Check if membership already exists
+    const existingIndex = memberships.findIndex(m => m.organizationId === membership.organizationId);
+    if (existingIndex >= 0) {
+      // Update existing membership
+      memberships[existingIndex] = membership;
+    } else {
+      // Add new membership
+      memberships.push(membership);
+    }
+
+    await this.storage.put('organization_memberships', memberships);
+  }
+
+  async removeOrganizationMember(organizationId: string, userId: string): Promise<{ ok: boolean }> {
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
+    if (!user) throw new Error('User not found');
+
+    // Check if I own this organization
+    const organization = await this.ownedOrganizations.findById(organizationId);
+    if (!organization) {
+      throw new Error('Organization not found or you do not own it');
+    }
+
+    // Get the member to remove
+    const member = await this.organizationMembers.where('organizationId', '==', organizationId).where('userId', '==', userId).first();
+    if (!member) {
+      throw new Error('Member not found');
+    }
+
+    // Remove member from my UserDO (I own the organization)
+    await this.organizationMembers.delete(member.id);
+
+    // Remove membership from the target user's UserDO
+    try {
+      const namespace = this.findUserDONamespace();
+      const targetUserDO = getUserDO(namespace, member.email);
+      await targetUserDO.removeMembership(organizationId);
+    } catch (error) {
+      console.error('Failed to remove membership from target user:', error);
+      // Don't fail the whole operation if this fails
+    }
+
+    this.broadcast('organization:member_removed', { organizationId, userId });
+
+    return { ok: true };
+  }
+
+  // Helper method to remove membership from a user's UserDO
+  async removeMembership(organizationId: string): Promise<void> {
+    const memberships = await this.storage.get<OrganizationMembership[]>('organization_memberships') || [];
+    const updatedMemberships = memberships.filter(m => m.organizationId !== organizationId);
+    await this.storage.put('organization_memberships', updatedMemberships);
+  }
+
+  // Helper to find the correct UserDO namespace dynamically
+  private findUserDONamespace(): DurableObjectNamespace<UserDO> {
+    // Try USERDO first (default)
+    if (this.env.USERDO) {
+      return this.env.USERDO as DurableObjectNamespace<UserDO>;
+    }
+
+    // Look for any UserDO-compatible namespace in the environment
+    for (const [key, value] of Object.entries(this.env)) {
+      if (value && typeof value === 'object' && 'get' in value && 'idFromName' in value) {
+        return value as DurableObjectNamespace<UserDO>;
+      }
+    }
+
+    throw new Error('No UserDO namespace found in environment');
+  }
+
   public table<T extends z.ZodSchema>(
     name: string,
     schema: T,
@@ -469,6 +738,8 @@ export class UserDO extends DurableObject {
 
   // WebSocket connection handling using Hibernation API
   async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+
     // Handle WebSocket upgrades directly in the UserDO
     if (request.headers.get('upgrade') === 'websocket') {
       const webSocketPair = new WebSocketPair();
