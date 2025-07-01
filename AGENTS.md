@@ -3,6 +3,14 @@
 ## Overview
 This document defines AI agent personas for the `userdo` package - a pragmatic Durable Object base class for building applications on Cloudflare Workers.
 
+### What UserDO Provides
+- Authentication: Email based (JWT) auth with signup, login, password reset
+- Key-Value Storage: Per-user KV storage with automatic broadcasting
+- Database: Type-safe SQLite tables with Zod schemas and query builder
+- Web Server: Pre-built Hono server with all endpoints configured
+- Real-time: WebSocket connections with hibernation API support
+- Organizations: Multi-user teams with roles and member management
+
 ## Philosophy: Simple > Clever
 
 UserDO follows pragmatic coding principles:

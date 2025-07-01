@@ -6,12 +6,18 @@ A Durable Object base class for building applications on Cloudflare Workers.
 
 ## What You Get
 
-- Authentication: JWT-based auth with signup, login, password reset
-- Organizations: Multi-user teams with roles and member management  
-- Database: Type-safe SQLite tables with Zod schemas and query builder
+- Authentication: Email based (JWT) auth with signup, login, password reset
 - Key-Value Storage: Per-user KV storage with automatic broadcasting
-- Real-time: WebSocket connections with hibernation API support
+- Database: Type-safe SQLite tables with Zod schemas and query builder
 - Web Server: Pre-built Hono server with all endpoints configured
+- Real-time: WebSocket connections with hibernation API support
+- Organizations: Multi-user teams with roles and member management  
+
+## Installation
+
+```bash
+bun install userdo
+```
 
 ## Quick Start
 
@@ -231,25 +237,7 @@ client.onChange('table:posts', event => {
 });
 ```
 
-## Decision Framework
 
-Before adding complexity, ask:
-
-1. Is there a measurable problem? (Not theoretical)
-2. Is the current solution causing actual pain? (Check metrics)  
-3. What's the cost/benefit? (Time investment vs improvement)
-
-### Red Flags
-- Refactoring for hypothetical benefits
-- Adding patterns without clear current needs
-- Replacing working code with more complex solutions
-- "The framework docs recommend..." (without context)
-
-### Valid Reasons
-- Reproducible bugs affecting users
-- Measured performance bottlenecks  
-- Blocking required features
-- Security vulnerabilities
 
 ## Architecture
 
@@ -259,17 +247,8 @@ Before adding complexity, ask:
 - Type-safe schemas: Zod validation for all operations
 - Automatic broadcasting: Real-time events for all data changes
 
-## Installation
+## Getting Started
 
-```bash
-npm install userdo
-```
+Ready to build? Check out the [examples](examples/) directory for complete applications, or start with the quick start guide above.
 
-## Pragmatic Mantras
-
-- "The perfect is the enemy of the good"
-- "You ain't gonna need it" (YAGNI)  
-- "Leave it better than you found it" (but only if it's actually better)
-- "Working simple code beats theoretically better complex code"
-
-UserDO: A base class for building applications without unnecessary complexity.
+For questions and support, open an issue on GitHub.
