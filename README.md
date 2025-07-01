@@ -104,6 +104,7 @@ export default {
 ```jsonc
 {
   "main": "src/index.ts",
+  "compatibility_flags": ["nodejs_compat"],
   "vars": {
     "JWT_SECRET": "your-jwt-secret-here"
   },
@@ -111,9 +112,17 @@ export default {
     "bindings": [
       { "name": "BLOG_DO", "class_name": "BlogDO" }
     ]
-  }
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["BlogDO"]
+    }
+  ]
 }
 ```
+
+**Important**: The `migrations` section with `new_sqlite_classes` is required to enable SQL database functionality. Without it, you'll get errors about SQL not being enabled.
 
 ### 4. Build Your Frontend
 

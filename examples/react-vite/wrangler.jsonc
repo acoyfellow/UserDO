@@ -1,0 +1,33 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "userdo-react-vite-example",
+  "main": "./src/worker/index.ts",
+  "compatibility_date": "2025-04-01",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "vars": {
+    "JWT_SECRET": "your-super-secret-jwt-key-change-this-in-production"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "upload_source_maps": true,
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "TASK_APP_DO",
+        "class_name": "UserDO",
+        "script_name": "userdo-react-vite-example"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "UserDO"
+      ]
+    }
+  ]
+}
