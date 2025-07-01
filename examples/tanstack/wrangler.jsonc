@@ -1,0 +1,19 @@
+{
+  "name": "userdo-tanstack-query",
+  "main": "index.tsx",
+  "compatibility_date": "2024-04-03",
+  "vars": {
+    "JWT_SECRET": "dev-secret"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "TODO_DO", "class_name": "TodoDO" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["TodoDO"]
+    }
+  ]
+}

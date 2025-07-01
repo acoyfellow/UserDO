@@ -1,0 +1,24 @@
+{
+  "name": "userdo-tanstack-query-example",
+  "version": "1.0.0",
+  "description": "UserDO example using TanStack Query for React",
+  "main": "index.tsx",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.21.0",
+    "hono": "^4.7.11",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "userdo": "latest",
+    "zod": "^3.25.64"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250614.0",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.20.0"
+  }
+}

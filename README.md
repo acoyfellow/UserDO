@@ -171,6 +171,9 @@ Functional programming - Integration with Effect library for advanced error hand
 ### [Multi-tenant](examples/multi-tenant/)
 Multiple isolated projects - How to run multiple independent applications using different UserDO binding names.
 
+### [TanStack Query](examples/tanstack/)
+React frontend example using TanStack Query for data fetching with UserDO.
+
 ## Browser Client
 
 ```ts
