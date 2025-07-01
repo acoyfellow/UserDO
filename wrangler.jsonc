@@ -1,0 +1,36 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "userdo",
+  "main": "src/worker.tsx",
+  "compatibility_date": "2025-04-01",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "upload_source_maps": true,
+  "assets": {
+    "directory": "dist",
+    "binding": "ASSETS"
+  },
+  "migrations": [
+    {
+      "new_sqlite_classes": [
+        "UserDO"
+      ],
+      "tag": "v1"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "UserDO",
+        "name": "USERDO"
+      }
+    ]
+  },
+  "vars": {
+    "JWT_SECRET": "your-jwt-secret"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
