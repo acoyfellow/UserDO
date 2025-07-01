@@ -21,25 +21,31 @@ bun install userdo
 
 ## Quick Start
 
-### 1. Extend UserDO with Your Business Logic
+### 1. Create Your Durable Object (Your Database + Logic)
+
+A Durable Object is like a mini-server that lives on Cloudflare's edge. Each user gets their own instance with their own database. You extend `UserDO` to add your business logic:
 
 ```ts
 import { UserDO, type Env } from "userdo";
 import { z } from "zod";
 
+// Define your data schema
 const PostSchema = z.object({
   title: z.string(),
   content: z.string(),
 });
 
+// This is your Durable Object - each user gets one instance
 export class BlogDO extends UserDO {
   posts: any;
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
+    // Create a table that's private to this user
     this.posts = this.table('posts', PostSchema, { userScoped: true });
   }
 
+  // Add your business methods
   async createPost(title: string, content: string) {
     return await this.posts.create({ title, content });
   }
@@ -50,20 +56,25 @@ export class BlogDO extends UserDO {
 }
 ```
 
-### 2. Create Your Worker
+### 2. Create Your Worker (Your HTTP Gateway)
+
+The Worker handles HTTP requests and routes them to the right user's Durable Object. It comes with built-in auth endpoints and you add your own:
 
 ```ts
 import { createUserDOWorker, createWebSocketHandler } from 'userdo';
 
+// Create the HTTP server with built-in auth endpoints
 const app = createUserDOWorker('BLOG_DO');
 const wsHandler = createWebSocketHandler('BLOG_DO');
 
-// Add your business endpoints
+// Add your custom endpoints
 app.post('/api/posts', async (c) => {
   const user = c.get('user');
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
   
   const { title, content } = await c.req.json();
+  
+  // Get this user's Durable Object instance
   const blogDO = getUserDOFromContext(c, user.email, 'BLOG_DO') as BlogDO;
   const post = await blogDO.createPost(title, content);
   
@@ -81,6 +92,13 @@ export default {
 };
 ```
 
+**Built-in HTTP endpoints** (no code needed):
+- `POST /api/signup` - Create account
+- `POST /api/login` - Sign in  
+- `GET /api/me` - Get current user
+- `GET /api/ws` - WebSocket connection
+- [See all endpoints](#built-in-api-endpoints)
+
 ### 3. Configure wrangler.jsonc
 
 ```jsonc
@@ -96,6 +114,10 @@ export default {
   }
 }
 ```
+
+### 4. Build Your Frontend
+
+UserDO provides the backend API - you bring your own frontend (React, Vue, vanilla JS, etc.). Check out our [examples](examples/) for complete applications with frontend code.
 
 ## Built-in API Endpoints
 
