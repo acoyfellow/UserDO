@@ -1,0 +1,45 @@
+{
+  "name": "userdo-vue-vite-example",
+  "description": "A full-stack Vue + Vite + UserDO example with task management",
+  "version": "1.0.0",
+  "cloudflare": {
+    "label": "UserDO Vue Template",
+    "products": ["Workers"],
+    "categories": [],
+    "publish": false
+  },
+  "dependencies": {
+    "hono": "4.8.3",
+    "userdo": "link:userdo",
+    "vue": "^3.4.21",
+    "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.8.0",
+    "@tailwindcss/vite": "^4.1.11",
+    "@types/node": "24.0.8",
+    "@vitejs/plugin-vue": "5.0.4",
+    "tailwindcss": "^4.1.11",
+    "typescript": "5.8.3",
+    "vite": "7.0.0",
+    "wrangler": "4.22.x"
+  },
+  "scripts": {
+    "build": "tsc -b && vite build",
+    "cf-typegen": "wrangler types",
+    "check": "tsc && vite build && wrangler deploy --dry-run",
+    "deploy": "wrangler deploy",
+    "dev": "vite",
+    "preview": "npm run build && vite preview"
+  },
+  "keywords": [
+    "userdo",
+    "vue",
+    "vite",
+    "durable-objects",
+    "cloudflare-workers",
+    "full-stack",
+    "task-management"
+  ],
+  "type": "module"
+}
