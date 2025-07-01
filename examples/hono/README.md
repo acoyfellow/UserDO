@@ -1,31 +1,26 @@
-# UserDO Hono Example
+# Hono Integration Example
 
-This example demonstrates how to extend UserDO with custom business logic using modern patterns and best practices.
+Learn how to build a complete web application with UserDO, including custom business logic, real-time features, and modern development patterns.
 
-## Key Features
+## What You'll Learn
 
-- **Extends UserDO**: Custom Durable Object with business-specific methods
-- **Type-safe Tables**: Uses Zod schemas for data validation
-- **Real-time Events**: Automatic broadcasting of table operations
-- **DRY Patterns**: Helper functions to reduce code duplication
-- **Unified Endpoints**: Single endpoints that handle both JSON and form data
-- **Modern UI**: Clean, responsive interface
+- How to extend UserDO with your own business logic
+- Creating type-safe database tables with automatic validation
+- Building endpoints that handle both JSON API calls and HTML forms
+- Setting up real-time WebSocket events for live updates
+- Organizing code to avoid duplication and improve maintainability
 
-## Architecture
+## Application Features
 
-### 1. Schema Definition
+- User authentication (signup, login, logout)
+- Create, read, and delete blog posts
+- Real-time updates when posts are created or deleted
+- Responsive web interface with forms and dynamic content
+- Unified API endpoints that work with both browsers and API clients
 
-```ts
-const PostSchema = z.object({
-  title: z.string(),
-  content: z.string(),
-  createdAt: z.string(),
-});
+## Key Patterns Demonstrated
 
-type Post = z.infer<typeof PostSchema>;
-```
-
-### 2. Extended UserDO
+### Extending UserDO for Business Logic
 
 ```ts
 export class MyAppDO extends UserDO {
@@ -47,56 +42,21 @@ export class MyAppDO extends UserDO {
   async getPosts() {
     return await this.posts.orderBy('createdAt', 'desc').get();
   }
-
-  async deletePost(id: string) {
-    await this.posts.delete(id);
-    return { ok: true };
-  }
 }
 ```
 
-### 3. Worker with Helper Functions
+### Unified Endpoints (JSON + Forms)
 
 ```ts
-import { createUserDOWorker, createWebSocketHandler, getUserDOFromContext } from 'userdo'
-
-const userDOWorker = createUserDOWorker('MY_APP_DO');
-const webSocketHandler = createWebSocketHandler('MY_APP_DO');
-
-// DRY helper functions
-const getMyAppDO = (c: any, email: string) => {
-  return getUserDOFromContext(c, email, 'MY_APP_DO') as MyAppDO;
-}
-
-const requireAuth = (c: any) => {
-  const user = c.get('user');
-  if (!user) {
-    return { error: c.json({ error: 'Unauthorized' }, 401), user: null };
-  }
-  return { user, error: null };
-}
-
-const broadcastPostChange = (email: string, action: string, data: any, env: any) => {
-  broadcastToUser(email, {
-    event: 'table:posts',
-    data: { action, ...data },
-    timestamp: Date.now()
-  }, 'MY_APP_DO', env);
-}
-```
-
-### 4. Unified Endpoints
-
-```ts
-// Single endpoint handles both JSON and form data
+// Single endpoint handles both API calls and form submissions
 userDOWorker.post("/posts", async (c) => {
   const { user, error } = requireAuth(c);
   if (error) return error;
 
-  let title: string, content: string;
-
-  // Support both JSON and form data
+  // Handle both JSON and form data
   const contentType = c.req.header('content-type') || '';
+  let title: string, content: string;
+  
   if (contentType.includes('application/json')) {
     const data = await c.req.json();
     ({ title, content } = data);
@@ -106,85 +66,22 @@ userDOWorker.post("/posts", async (c) => {
     content = formData.get('content') as string;
   }
 
-  if (!title || !content) {
-    return c.json({ error: "Missing title or content" }, 400);
-  }
-
   const myAppDO = getMyAppDO(c, user!.email);
   const post = await myAppDO.createPost(title, content);
 
-  // Broadcast real-time update
-  broadcastPostChange(user!.email, 'create', { data: post }, c.env);
-
-  // Return appropriate response based on request type
+  // Return appropriate response
   if (contentType.includes('application/json')) {
     return c.json({ ok: true, data: post });
   } else {
-    return c.redirect('/');
+    return c.redirect('/'); // Redirect after form submission
   }
 });
 ```
 
-## API Endpoints
+### Helper Functions for Clean Code
 
-### Built-in (from createUserDOWorker)
-- `POST /api/signup` - Create user account
-- `POST /api/login` - Authenticate user  
-- `POST /api/logout` - End user session
-- `GET /api/me` - Get current user info
-- `POST /api/password-reset/request` - Generate reset token
-- `POST /api/password-reset/confirm` - Reset password with token
-- `GET /data` - Get user's key-value data
-- `POST /data` - Set user's key-value data
-
-### Custom (added by this example)
-- `GET /posts` - List user's posts
-- `POST /posts` - Create post (handles both JSON and form data)
-- `DELETE /posts/:id` - Delete a post
-- `POST /api/posts` - JSON-only post creation endpoint
-
-### WebSocket
-- `GET /api/ws` - Real-time event stream
-
-## Database Operations
-
-### Table Operations (with automatic events)
 ```ts
-// Create - broadcasts 'table:posts' event
-const post = await this.posts.create({ title, content, createdAt });
-
-// Update - broadcasts 'table:posts' event  
-const updated = await this.posts.update(id, { title, content });
-
-// Delete - broadcasts 'table:posts' event
-await this.posts.delete(id);
-
-// Query - no events
-const posts = await this.posts.orderBy('createdAt', 'desc').get();
-```
-
-### Key-Value Storage (with automatic events)
-```ts
-// Set - broadcasts 'kv:{key}' event
-await this.set('preferences', { theme: 'dark', language: 'en' });
-
-// Get - no events
-const preferences = await this.get('preferences');
-```
-
-## Real-time Events
-
-All data operations automatically broadcast WebSocket events:
-
-- `table:posts` - When posts are created, updated, or deleted
-- `kv:{key}` - When key-value data is stored
-
-## DRY Improvements
-
-This example demonstrates several patterns to reduce code duplication:
-
-### 1. Authentication Helper
-```ts
+// Reusable authentication check
 const requireAuth = (c: any) => {
   const user = c.get('user');
   if (!user) {
@@ -192,128 +89,80 @@ const requireAuth = (c: any) => {
   }
   return { user, error: null };
 }
-```
 
-### 2. Broadcasting Helper
-```ts
-const broadcastPostChange = (email: string, action: string, data: any, env: any) => {
-  broadcastToUser(email, {
-    event: 'table:posts',
-    data: { action, ...data },
-    timestamp: Date.now()
-  }, 'MY_APP_DO', env);
+// Easy access to your custom UserDO
+const getMyAppDO = (c: any, email: string) => {
+  return getUserDOFromContext(c, email, 'MY_APP_DO') as MyAppDO;
 }
 ```
 
-### 3. Client-side API Helper
-```ts
-const apiCall = async (url, options = {}) => {
-  const response = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options
-  });
-  
-  if (!response.ok) throw new Error('Request failed');
-  return await response.json();
-};
-```
+## File Structure
 
-### 4. Unified Content-Type Handling
-Single endpoints that handle both JSON API calls and form submissions.
+```
+index.ts - Main application with MyAppDO class and API routes
+frontend.tsx - React components for the web interface
+package.json - Dependencies and scripts
+wrangler.jsonc - Cloudflare Workers configuration
+```
 
 ## Running the Example
 
 ```bash
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
-
-# Deploy to Cloudflare
-npm run deploy
+cd examples/hono
+bun install
+bun run dev
 ```
 
-## Configuration
+Open `http://localhost:8787` to see the application. You can:
 
-### wrangler.jsonc
-```jsonc
-{
-  "name": "userdo-hono-example",
-  "main": "index.tsx",
-  "vars": {
-    "JWT_SECRET": "your-jwt-secret-here"
-  },
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "MY_APP_DO",
-        "class_name": "MyAppDO"
-      }
-    ]
-  }
-}
-```
+1. Sign up for an account or log in
+2. Create blog posts using the form
+3. See posts update in real-time (open multiple browser tabs)
+4. Delete posts and watch them disappear across all tabs
 
-## Files Structure
+## API Endpoints
 
-- `index.tsx` - Main application with extended UserDO class
-- `wrangler.example.jsonc` - Configuration template
-- `wrangler.jsonc` - Local configuration (gitignored)
-- `package.json` - Dependencies
-- `tsconfig.json` - TypeScript configuration
+### Built-in Authentication (from UserDO)
+- `POST /api/signup` - Create account
+- `POST /api/login` - Sign in
+- `POST /api/logout` - Sign out
+- `GET /api/me` - Get current user
 
-## Quick Start
+### Custom Business Logic
+- `GET /posts` - List all posts
+- `POST /posts` - Create new post (handles both JSON and forms)
+- `DELETE /posts/:id` - Delete a post
+- `POST /api/posts` - JSON-only post creation
 
-### Prerequisites
-- [Bun](https://bun.sh) or [Node.js](https://nodejs.org)
-- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/)
-- Cloudflare account
+### Real-time Updates
+- `GET /api/ws` - WebSocket connection for live updates
 
-### Steps
-1. **Copy the example**
-   ```bash
-   cp -r examples/hono my-userdo-app
-   cd my-userdo-app
-   ```
+## Real-time Features
 
-2. **Set up configuration**
-   ```bash
-   cp wrangler.example.jsonc wrangler.jsonc
-   ```
+The application automatically broadcasts events when data changes:
 
-3. **Install dependencies**
-   ```bash
-   bun install  # or npm install
-   ```
+- When you create a post, all connected users see it appear instantly
+- When you delete a post, it disappears from all browsers immediately
+- No manual refresh needed - everything updates live
 
-4. **Set JWT secret**
-   ```bash
-   # For local development (add to wrangler.jsonc):
-   "vars": { "JWT_SECRET": "your-local-dev-secret" }
-   
-   # For production:
-   wrangler secret put JWT_SECRET
-   ```
+## Learning Outcomes
 
-5. **Run locally**
-   ```bash
-   bun run dev  # or npm run dev
-   ```
+After studying this example, you'll understand:
 
-6. **Deploy (optional)**
-   ```bash
-   bun run deploy  # or npm run deploy
-   ```
+1. **How to add business logic** to UserDO without breaking built-in features
+2. **Type-safe database operations** with automatic validation and real-time events
+3. **Building APIs that work for both browsers and API clients** with unified endpoints
+4. **Code organization patterns** that keep your application maintainable as it grows
+5. **Real-time web applications** using WebSocket events
 
-Visit `http://localhost:8787` to see your app!
+## Extending This Example
 
-## Key Benefits
+To adapt this for your application:
 
-- **Minimal Boilerplate**: Start with complete auth system
-- **Type Safety**: Zod schemas ensure data integrity
-- **Real-time Ready**: Automatic event broadcasting
-- **Scalable**: Per-user data isolation via Durable Objects
-- **Extensible**: Add business logic without touching core auth
-- **DRY Code**: Helper functions reduce duplication
-- **Flexible**: Endpoints handle multiple content types 
+1. Replace the `PostSchema` with your data structure
+2. Add your business logic methods to the UserDO extension
+3. Create endpoints for your specific operations
+4. Update the frontend to match your application's needs
+5. Keep the authentication and real-time features as-is
+
+This example shows the foundation for building any web application with UserDO - from blogs to project management tools to social platforms. 

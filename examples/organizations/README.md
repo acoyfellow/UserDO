@@ -1,21 +1,25 @@
 # Organizations Example
 
-A team project management system built with UserDO, demonstrating organization-scoped data, member management, and multi-level business logic.
+A team project management system demonstrating UserDO's organization features for building multi-user applications.
 
-## What This Example Demonstrates
+## What You'll Learn
 
-This is a team collaboration app that shows how UserDO's built-in organization features enable multi-user applications.
+- How to use UserDO's built-in organization management
+- Organization-scoped data tables and automatic context switching
+- Cross-user member invitations and role management
+- Building a complete web interface with forms and navigation
+- Real-time collaboration with WebSocket integration
 
-### Core Features
+## Application Features
 
-- Organizations: Create and manage teams/companies
-- Projects: Organization-scoped project management  
-- Tasks: Project-specific task tracking with assignments
-- Member Management: Invite users, assign roles (Owner/Admin/Member)
-- Access Control: Permission checking across all levels
-- Real-time Updates: Live collaboration via WebSocket
+- Create and manage organizations (teams/companies)
+- Add members with different roles (Owner/Admin/Member)
+- Create projects within organizations
+- Manage tasks within projects with member assignments
+- Role-based access control throughout the application
+- Real-time updates for collaborative work
 
-### Architecture Overview
+## Architecture
 
 ```
 Users
@@ -27,126 +31,109 @@ Projects (organization-scoped)
 Tasks (project-scoped, assignable to members)
 ```
 
-## Key UserDO Features Showcased
+## Key Implementation Patterns
 
-### 1. Built-in Organization Management
-```ts
-// Organization CRUD operations
-await teamDO.createOrganization(name);
-await teamDO.getOrganizations(); // Returns owned + member orgs
-await teamDO.addOrganizationMember(orgId, email, role);
-```
+### Organization-Scoped Data Tables
 
-### 2. Organization-Scoped Data Tables
 ```ts
 export class TeamDO extends UserDO {
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
     
-    // Data automatically isolated per organization
+    // Tables automatically isolated per organization
     this.projects = this.table('projects', ProjectSchema, { organizationScoped: true });
     this.tasks = this.table('tasks', TaskSchema, { organizationScoped: true });
   }
 }
 ```
 
-### 3. Automatic Context Switching
+### Context Switching for Data Isolation
+
 ```ts
 async createProject(name: string, description: string, organizationId: string) {
-  await this.getOrganization(organizationId); // Built-in access control
+  await this.getOrganization(organizationId); // Access control check
   this.setOrganizationContext(organizationId); // Switch data scope
-  return await this.projects.create({ name, description }); // Auto-scoped
+  return await this.projects.create({ name, description }); // Auto-scoped to org
 }
 ```
 
-### 4. Cross-User Invitations
+### Built-in Member Management
+
 ```ts
-// Stores invitation in target user's UserDO
-await teamDO.addOrganizationMember(orgId, 'newuser@example.com', 'member');
+// Add member - automatically handles cross-user invitations
+await teamDO.addOrganizationMember(orgId, 'user@example.com', 'admin');
 
-// Target user sees invitation when they log in
-const { memberOrganizations } = await userDO.getOrganizations();
+// Get organizations - returns both owned and member organizations
+const { ownedOrganizations, memberOrganizations } = await teamDO.getOrganizations();
 ```
 
-## Complete Web Interface
-
-### Pages Included:
-- Dashboard: Overview of owned/member organizations
-- Organization Detail: Projects list, member management
-- Project Detail: Tasks list, assignment management  
-- Create Forms: New organizations, projects, tasks
-- Member Management: Add/remove users, role assignment
-
-### API Endpoints:
-- Built-in Org Endpoints: `/api/organizations/*` (from UserDO)
-- Project Endpoints: `/api/projects` (custom business logic)
-- Task Endpoints: `/api/tasks` (custom business logic)
-- Web Routes: Full navigation between all pages
-
-## Code Structure
+## File Structure
 
 ```
-index.tsx (438 lines)
-├── TeamDO class (60 lines) - Pure business logic
-├── API endpoints (80 lines) - Project/task operations  
-├── Web routes (200 lines) - Full navigation
-└── Worker export (10 lines) - WebSocket + HTTP
-
-frontend.tsx (506 lines)
-├── 9 complete page components
-├── Forms with validation
-├── Role-based UI rendering
-└── Navigation and styling
+index.tsx - Main application with TeamDO class and API routes
+frontend.tsx - React components for all pages
+package.json - Dependencies and scripts
+wrangler.jsonc - Cloudflare Workers configuration
 ```
 
 ## Running the Example
 
 ```bash
-# From repository root
 cd examples/organizations
 bun install
 bun run dev
 ```
 
-Visit `http://localhost:8787` and:
+Open `http://localhost:8787` and:
 
-1. Sign up as first user (becomes org owner)
-2. Create organization "My Company"  
-3. Add members with different roles
-4. Create projects within the organization
-5. Create tasks within projects, assign to members
-6. Switch users to see role-based access control
+1. Sign up as the first user (automatically becomes organization owner)
+2. Create an organization
+3. Add other users as members with different roles
+4. Create projects and tasks
+5. Log in as different users to see role-based access
 
-## What Makes This Clean
+## API Endpoints
 
-### Before UserDO (Complex):
-- 300+ lines of custom organization logic
-- Manual invitation storage/retrieval
-- Complex cross-user data access
-- Custom access control implementation
-- Manual context switching
+### Built-in Organization Endpoints (from UserDO)
+- `POST /api/organizations` - Create organization
+- `GET /api/organizations` - Get user's organizations
+- `GET /api/organizations/:id` - Get specific organization
+- `POST /api/organizations/:id/members` - Add member
+- `DELETE /api/organizations/:id/members/:userId` - Remove member
 
-### With UserDO (Clean):
-- 60 lines of pure business logic in TeamDO
-- Zero custom organization code needed
-- Automatic invitation delivery
-- Built-in access control
-- Automatic data scoping
+### Custom Business Logic Endpoints
+- `POST /api/projects` - Create project in organization
+- `GET /api/projects` - Get organization's projects
+- `POST /api/tasks` - Create task in project
+- `PUT /api/tasks/:id` - Update task status/assignment
 
-## Key Learning Points
+## Web Interface
 
-1. Organization features are built-in - No custom implementation needed
-2. Data scoping is automatic - Just use `{ organizationScoped: true }`
-3. Member management works across users - Invitations are delivered automatically
-4. Access control is handled - `getOrganization()` validates permissions
-5. Business logic stays pure - Focus on projects/tasks, not org complexity
+The example includes a complete web interface with:
 
-## Production Considerations
+- Dashboard showing owned and member organizations
+- Organization detail pages with project listings
+- Project detail pages with task management
+- Forms for creating organizations, projects, and tasks
+- Member management interface with role assignment
+- Navigation between all sections
 
-- Scalability: Each user gets their own Durable Object instance
-- Security: Built-in role-based access control and data isolation  
-- Real-time: WebSocket broadcasts for live collaboration
-- Type Safety: Full TypeScript with Zod validation
-- Error Handling: Graceful failures with user-friendly messages
+## Learning Points
 
-This example shows that complex multi-user applications can be built with minimal code when the platform handles the hard parts.
+1. **Organization features work out of the box** - No custom implementation needed for basic org management
+2. **Data scoping is automatic** - Use `{ organizationScoped: true }` and `setOrganizationContext()`
+3. **Member invitations work across users** - UserDO handles storing invitations in target user accounts
+4. **Access control is built-in** - `getOrganization()` validates user permissions automatically
+5. **Focus on business logic** - Spend time on projects/tasks, not organization infrastructure
+
+## Extending This Example
+
+To adapt this for your use case:
+
+1. Replace the `projects` and `tasks` tables with your business entities
+2. Update the schemas to match your data requirements  
+3. Modify the web interface to match your application flow
+4. Add any additional business logic methods to your UserDO subclass
+5. Keep the organization management as-is - it handles the multi-user complexity
+
+This example shows how UserDO's organization features let you build complex multi-user applications by focusing on your business logic rather than user management infrastructure.
