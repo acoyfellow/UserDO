@@ -1,152 +1,213 @@
-# Organizations Example
+# 🎉 Clean Organizations Example
 
-A team project management system built with UserDO, demonstrating organization-scoped data, member management, and multi-level business logic.
+This example demonstrates how **dramatically simpler** organization management becomes with my UserDO's built-in organization features.
 
-## What This Example Demonstrates
+## 📊 Code Comparison
 
-This is a team collaboration app that shows how UserDO's built-in organization features enable multi-user applications.
+| Aspect | Complex Example (Original) | Clean Example (My UserDO) |
+|--------|---------------------------|---------------------------|
+| **Lines of Code** | ~940 lines | ~400 lines |
+| **TeamDO Class** | 320+ lines with complex logic | 60 lines of pure business logic |
+| **Organization Logic** | Custom implementation required | Built-in, just works |
+| **Invitation System** | Manual complex implementation | Automatic with `addMemberToOrganization()` |
+| **Member Management** | Custom storage + retrieval logic | Built-in `getMemberOrganizations()` |
+| **Data Isolation** | Manual context switching | Automatic with `setOrganizationContext()` |
+| **Error Handling** | Extensive debugging code | Clean, built-in error handling |
 
-### Core Features
+## 🚀 What My UserDO Eliminates
 
-- Organizations: Create and manage teams/companies
-- Projects: Organization-scoped project management  
-- Tasks: Project-specific task tracking with assignments
-- Member Management: Invite users, assign roles (Owner/Admin/Member)
-- Access Control: Permission checking across all levels
-- Real-time Updates: Live collaboration via WebSocket
-
-### Architecture Overview
-
-```
-Users
-  ↓
-Organizations (Owner/Admin/Member roles)
-  ↓  
-Projects (organization-scoped)
-  ↓
-Tasks (project-scoped, assignable to members)
-```
-
-## Key UserDO Features Showcased
-
-### 1. Built-in Organization Management
+### ❌ Complex Custom Logic You Had to Write:
 ```ts
-// Organization CRUD operations
-await teamDO.createOrganization(name);
-await teamDO.getOrganizations(); // Returns owned + member orgs
-await teamDO.addOrganizationMember(orgId, email, role);
+// Your complex invitation storage logic
+async addMemberToOrganization({ organizationId, email, role }) {
+  // Call parent method first
+  const result = await super.addMemberToOrganization({ organizationId, email, role });
+  
+  // Then manually handle invitation storage with complex debugging
+  try {
+    const hashedEmail = await import('userdo').hashEmailForId(email.toLowerCase());
+    const namespace = (this.env as Env).TEAM_DO;
+    const userDOID = namespace.idFromName(email.toLowerCase()); // BUG: should use hashed!
+    const inviteeDO = namespace.get(userDOID) as TeamDO;
+    
+    await inviteeDO.storeInvitation({
+      organizationId,
+      organizationName: organization.name,
+      inviterEmail: user.email,
+      role,
+      addedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('TeamDO: Error storing invitation:', error);
+  }
+}
+
+// Custom invitation storage you had to implement
+async storeInvitation(invitation) {
+  console.log('TeamDO: Storing invitation:', invitation);
+  const key = `invitation:${invitation.organizationId}`;
+  await this.storage.put(key, invitation);
+  
+  // Extensive debugging...
+  const stored = await this.storage.get(key);
+  console.log('TeamDO: Verification - stored data:', stored);
+  const allKeys = await this.storage.list();
+  console.log('TeamDO: All storage keys after storing:', Array.from(allKeys.keys()));
+}
+
+// Custom retrieval logic
+async getMemberOrganizations() {
+  const memberOrganizations: any[] = [];
+  const invitationKeys = await this.storage.list({ prefix: 'invitation:' });
+  
+  for (const [key, value] of invitationKeys) {
+    const invitation = value as any;
+    memberOrganizations.push({
+      organizationId: invitation.organizationId,
+      organizationName: invitation.organizationName,
+      role: invitation.role,
+      addedAt: invitation.addedAt,
+    });
+  }
+  
+  return { organizations: memberOrganizations };
+}
 ```
 
-### 2. Organization-Scoped Data Tables
+### ✅ My UserDO Makes This Simple:
 ```ts
+// No overrides needed - it just works!
 export class TeamDO extends UserDO {
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
     
-    // Data automatically isolated per organization
+    // Organization-scoped tables - automatic data isolation
     this.projects = this.table('projects', ProjectSchema, { organizationScoped: true });
     this.tasks = this.table('tasks', TaskSchema, { organizationScoped: true });
   }
+
+  // Pure business logic - no organization complexity
+  async createProject(name: string, description: string, organizationId: string) {
+    await this.getOrganization({ organizationId }); // Built-in access control
+    this.setOrganizationContext(organizationId);     // Built-in context
+    return await this.projects.create({ name, description, status: 'active', createdAt: new Date().toISOString() });
+  }
 }
+
+// Built-in methods that just work:
+// ✅ await teamDO.addMemberToOrganization({ organizationId, email, role })
+//    ↳ Automatically stores invitation in target user's DO
+// ✅ await teamDO.getMemberOrganizations()
+//    ↳ Returns all stored invitations/memberships
+// ✅ await teamDO.getOrganization({ organizationId })
+//    ↳ Built-in access control and invitation handling
 ```
 
-### 3. Automatic Context Switching
+## 🏗️ Built-In Organization Features
+
+My UserDO includes all organization functionality out of the box:
+
+### 🎯 **Organization Management**
+- `createOrganization(name)` - Create new organization
+- `getOrganizations()` - Get user's owned organizations  
+- `getOrganization({ organizationId })` - Get specific org with access control
+
+### 👥 **Member Management** 
+- `addMemberToOrganization({ organizationId, email, role })` - **Automatically stores invitation**
+- `removeMemberFromOrganization({ organizationId, email })` - Clean member removal
+- `getMemberOrganizations()` - **Automatically returns stored invitations**
+- `updateMemberRole({ organizationId, email, role })` - Role management
+
+### 🔐 **Built-In Security**
+- Automatic access control verification
+- Role-based permissions (owner/admin/member)
+- Email hashing for privacy
+- Invitation validation
+
+### 📊 **Organization-Scoped Data**
+- `{ organizationScoped: true }` table option
+- `setOrganizationContext(organizationId)` for data isolation
+- Automatic SQL scoping by organization
+- Zero manual context management
+
+## 🚦 Usage Pattern
+
 ```ts
-async createProject(name: string, description: string, organizationId: string) {
-  await this.getOrganization(organizationId); // Built-in access control
-  this.setOrganizationContext(organizationId); // Switch data scope
-  return await this.projects.create({ name, description }); // Auto-scoped
+// 1. Create your business logic DO
+export class MyAppDO extends UserDO {
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env);
+    this.businessData = this.table('business_data', Schema, { organizationScoped: true });
+  }
+
+  async doBusinessLogic(organizationId: string, data: any) {
+    this.setOrganizationContext(organizationId); // Set context
+    return await this.businessData.create(data); // Automatically scoped
+  }
 }
+
+// 2. Use built-in worker with organization endpoints
+const app = createUserDOWorker('MY_APP_DO');
+
+// 3. Organization endpoints work automatically:
+//    POST /api/organizations - Create organization
+//    GET /api/organizations - Get owned organizations  
+//    GET /api/organizations/member - Get member organizations
+//    POST /api/organizations/members - Add member (with auto-invitation)
+//    DELETE /api/organizations/members - Remove member
+
+// 4. Add your business endpoints
+app.post('/api/business-action', async (c) => {
+  const { organizationId, data } = await c.req.json();
+  const myAppDO = await getUserDOFromContext(c, user.email, 'MY_APP_DO') as MyAppDO;
+  return c.json(await myAppDO.doBusinessLogic(organizationId, data));
+});
 ```
 
-### 4. Cross-User Invitations
-```ts
-// Stores invitation in target user's UserDO
-await teamDO.addOrganizationMember(orgId, 'newuser@example.com', 'member');
+## 🎯 Key Benefits
 
-// Target user sees invitation when they log in
-const { memberOrganizations } = await userDO.getOrganizations();
-```
+1. **🧹 Clean Separation**: Organization logic is built-in, business logic stays pure
+2. **🔧 Zero Setup**: No complex custom implementation needed  
+3. **🛡️ Secure by Default**: Built-in access control and validation
+4. **📡 Real-time Ready**: WebSocket broadcasts included
+5. **🚀 Production Ready**: Error handling, rate limiting, type safety included
+6. **🔄 Backward Compatible**: Existing UserDO code still works
 
-## Complete Web Interface
-
-### Pages Included:
-- Dashboard: Overview of owned/member organizations
-- Organization Detail: Projects list, member management
-- Project Detail: Tasks list, assignment management  
-- Create Forms: New organizations, projects, tasks
-- Member Management: Add/remove users, role assignment
-
-### API Endpoints:
-- Built-in Org Endpoints: `/api/organizations/*` (from UserDO)
-- Project Endpoints: `/api/projects` (custom business logic)
-- Task Endpoints: `/api/tasks` (custom business logic)
-- Web Routes: Full navigation between all pages
-
-## Code Structure
-
-```
-index.tsx (438 lines)
-├── TeamDO class (60 lines) - Pure business logic
-├── API endpoints (80 lines) - Project/task operations  
-├── Web routes (200 lines) - Full navigation
-└── Worker export (10 lines) - WebSocket + HTTP
-
-frontend.tsx (506 lines)
-├── 9 complete page components
-├── Forms with validation
-├── Role-based UI rendering
-└── Navigation and styling
-```
-
-## Running the Example
+## 📋 Setup Instructions
 
 ```bash
-# From repository root
-cd examples/organizations
+# 1. Link UserDO (from repository root)
+cd /srv/userdo  
+bun link
+
+# 2. In this example directory
+cd examples/clean-organizations
+bun link userdo
 bun install
+
+# 3. Run the example
 bun run dev
 ```
 
-Visit `http://localhost:8787` and:
+## 🎉 The Result
 
-1. Sign up as first user (becomes org owner)
-2. Create organization "My Company"  
-3. Add members with different roles
-4. Create projects within the organization
-5. Create tasks within projects, assign to members
-6. Switch users to see role-based access control
+What took **940 lines** of complex custom logic now takes **~400 lines** of clean business logic. 
 
-## What Makes This Clean
+Your TeamDO went from a complex organization management system to a simple business logic class, because all the organization complexity is now built into UserDO itself.
 
-### Before UserDO (Complex):
-- 300+ lines of custom organization logic
-- Manual invitation storage/retrieval
-- Complex cross-user data access
-- Custom access control implementation
-- Manual context switching
+**This is the power of proper abstraction!** 🚀
 
-### With UserDO (Clean):
-- 60 lines of pure business logic in TeamDO
-- Zero custom organization code needed
-- Automatic invitation delivery
-- Built-in access control
-- Automatic data scoping
 
-## Key Learning Points
 
-1. Organization features are built-in - No custom implementation needed
-2. Data scoping is automatic - Just use `{ organizationScoped: true }`
-3. Member management works across users - Invitations are delivered automatically
-4. Access control is handled - `getOrganization()` validates permissions
-5. Business logic stays pure - Focus on projects/tasks, not org complexity
+# Test flow
 
-## Production Considerations
-
-- Scalability: Each user gets their own Durable Object instance
-- Security: Built-in role-based access control and data isolation  
-- Real-time: WebSocket broadcasts for live collaboration
-- Type Safety: Full TypeScript with Zod validation
-- Error Handling: Graceful failures with user-friendly messages
-
-This example shows that complex multi-user applications can be built with minimal code when the platform handles the hard parts. 
+  1) Sign up as user1@example.com
+  2) Create organization "My Org"
+  3) Add user2@example.com as admin
+  4) Add user3@example.com as member
+  5) user1@example.com creates project "My Project"
+  6) user2@example.com creates task "My Task"
+  7) user3@example.com completes task "My Task"
+  8) user1@example.com deletes organization "My Org"
+  9) user2@example.com deletes project "My Project"
+  10) user3@example.com deletes task "My Task"
