@@ -1,0 +1,32 @@
+{
+  "name": "userdo-svelte-vite-example",
+  "version": "1.0.0",
+  "description": "Svelte + Vite example using UserDO",
+  "dependencies": {
+    "hono": "4.8.3",
+    "svelte": "^4.2.0",
+    "userdo": "link:userdo",
+    "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.8.0",
+    "@sveltejs/vite-plugin-svelte": "^3.0.2",
+    "@tailwindcss/vite": "^4.1.11",
+    "@types/node": "24.0.8",
+    "svelte-check": "^3.6.0",
+    "tailwindcss": "^4.1.11",
+    "typescript": "5.8.3",
+    "vite": "7.0.0",
+    "wrangler": "4.22.x"
+  },
+  "scripts": {
+    "build": "tsc -b && vite build",
+    "cf-typegen": "wrangler types",
+    "check": "tsc && vite build && wrangler deploy --dry-run",
+    "deploy": "wrangler deploy",
+    "dev": "vite",
+    "lint": "svelte-check --tsconfig ./tsconfig.app.json",
+    "preview": "npm run build && vite preview"
+  },
+  "type": "module"
+}
