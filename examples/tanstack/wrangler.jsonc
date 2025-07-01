@@ -1,0 +1,35 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "userdo-tanstack-start-todo",
+  "main": ".output/server/index.mjs",
+  "compatibility_date": "2025-01-20",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "vars": {
+    "JWT_SECRET": "dev-secret"
+  },
+  "assets": {
+    "directory": ".output/public"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "TODO_DO",
+        "class_name": "UserDO",
+        "script_name": "userdo-tanstack-start-todo"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "TodoDO"
+      ]
+    }
+  ]
+}
