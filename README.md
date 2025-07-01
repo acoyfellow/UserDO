@@ -1,24 +1,24 @@
 # UserDO
 
-A **pragmatic** Durable Object base class for building **working applications fast** on Cloudflare Workers.
+A Durable Object base class for building applications on Cloudflare Workers.
 
 ## Philosophy: Simple > Clever
 
 UserDO follows pragmatic coding principles:
 
-- **🎯 Working simple code > theoretically "better" complex code**
-- **🧹 Every line is a liability** - more code = more bugs
-- **🛡️ Don't fix what isn't broken** - if it works reliably, resist refactoring
-- **🚀 Ship then polish** - working imperfect code > perfect unshipped code
+- Working simple code > theoretically "better" complex code
+- Every line is a liability - more code = more bugs
+- Don't fix what isn't broken - if it works reliably, resist refactoring
+- Ship then polish - working imperfect code > perfect unshipped code
 
-## What You Get Out of the Box
+## What You Get
 
-- **👤 Authentication**: JWT-based auth with signup, login, password reset
-- **🏢 Organizations**: Multi-user teams with roles and member management  
-- **📊 Database**: Type-safe SQLite tables with Zod schemas and query builder
-- **🔑 Key-Value Storage**: Per-user KV storage with automatic broadcasting
-- **📡 Real-time**: WebSocket connections with hibernation API support
-- **🌐 Web Server**: Pre-built Hono server with all endpoints configured
+- Authentication: JWT-based auth with signup, login, password reset
+- Organizations: Multi-user teams with roles and member management  
+- Database: Type-safe SQLite tables with Zod schemas and query builder
+- Key-Value Storage: Per-user KV storage with automatic broadcasting
+- Real-time: WebSocket connections with hibernation API support
+- Web Server: Pre-built Hono server with all endpoints configured
 
 ## Quick Start
 
@@ -100,7 +100,7 @@ export default {
 
 ## Built-in API Endpoints
 
-All these work immediately with **zero configuration**:
+These endpoints work without additional configuration:
 
 ### Authentication
 - `POST /api/signup` - Create user account
@@ -124,7 +124,7 @@ All these work immediately with **zero configuration**:
 
 ## Organization-Scoped Applications
 
-UserDO makes **multi-user team applications** trivial:
+UserDO handles multi-user team applications:
 
 ```ts
 export class TeamDO extends UserDO {
@@ -146,30 +146,30 @@ export class TeamDO extends UserDO {
   }
 }
 
-// Member management just works:
+// Member management:
 await teamDO.addOrganizationMember(orgId, 'user@example.com', 'admin');
-// ↳ Automatically stores invitation in target user's UserDO
+// Stores invitation in target user's UserDO
 
 const { memberOrganizations } = await userDO.getOrganizations();  
-// ↳ Returns all invitations/memberships for this user
+// Returns all invitations/memberships for this user
 ```
 
 ## Examples
 
-### [🏢 Organizations](examples/organizations/) 
-**Complete team project management system** - Organizations → Projects → Tasks with member management, role-based access control, and real-time collaboration. Shows how complex multi-user apps become simple.
+### [Organizations](examples/organizations/) 
+Complete team project management system - Organizations → Projects → Tasks with member management, role-based access control, and real-time collaboration.
 
-### [🌐 Hono Integration](examples/hono/)
-**Full-featured web application** - Complete auth flows, data management, WebSocket integration, and browser client usage patterns.
+### [Hono Integration](examples/hono/)
+Full-featured web application - Complete auth flows, data management, WebSocket integration, and browser client usage patterns.
 
-### [☁️ Alchemy Deployment](examples/alchemy/)
-**Production deployment** - Ready-to-deploy configuration for Alchemy.run with environment setup and scaling considerations.
+### [Alchemy Deployment](examples/alchemy/)
+Production deployment - Ready-to-deploy configuration for Alchemy.run with environment setup and scaling considerations.
 
-### [⚡ Effect Integration](examples/effect/)
-**Functional programming** - Integration with Effect library for advanced error handling and functional composition patterns.
+### [Effect Integration](examples/effect/)
+Functional programming - Integration with Effect library for advanced error handling and functional composition patterns.
 
-### [🏗️ Multi-tenant](examples/multi-tenant/)
-**Multiple isolated projects** - How to run multiple independent applications using different UserDO binding names.
+### [Multi-tenant](examples/multi-tenant/)
+Multiple isolated projects - How to run multiple independent applications using different UserDO binding names.
 
 ## Browser Client
 
@@ -226,7 +226,7 @@ const results = await this.posts
 
 ## Real-time Events
 
-All data changes automatically broadcast WebSocket events:
+Data changes automatically broadcast WebSocket events:
 
 ```ts
 // Listen for specific data changes
@@ -242,17 +242,17 @@ client.onChange('table:posts', event => {
 
 Before adding complexity, ask:
 
-1. **Is there a measurable problem?** (Not theoretical)
-2. **Is the current solution causing actual pain?** (Check metrics)  
-3. **What's the cost/benefit?** (Time investment vs improvement)
+1. Is there a measurable problem? (Not theoretical)
+2. Is the current solution causing actual pain? (Check metrics)  
+3. What's the cost/benefit? (Time investment vs improvement)
 
-### Red Flags 🚫
+### Red Flags
 - Refactoring for hypothetical benefits
 - Adding patterns without clear current needs
 - Replacing working code with more complex solutions
 - "The framework docs recommend..." (without context)
 
-### Valid Reasons ✅
+### Valid Reasons
 - Reproducible bugs affecting users
 - Measured performance bottlenecks  
 - Blocking required features
@@ -260,11 +260,11 @@ Before adding complexity, ask:
 
 ## Architecture
 
-- **Per-user isolation**: Each user gets their own Durable Object instance
-- **Email-based routing**: User emails determine Durable Object IDs  
-- **WebSocket hibernation**: Efficient real-time using Cloudflare's hibernation API
-- **Type-safe schemas**: Zod validation for all operations
-- **Automatic broadcasting**: Real-time events for all data changes
+- Per-user isolation: Each user gets their own Durable Object instance
+- Email-based routing: User emails determine Durable Object IDs  
+- WebSocket hibernation: Uses Cloudflare's hibernation API for WebSocket handling
+- Type-safe schemas: Zod validation for all operations
+- Automatic broadcasting: Real-time events for all data changes
 
 ## Installation
 
@@ -279,6 +279,4 @@ npm install userdo
 - "Leave it better than you found it" (but only if it's actually better)
 - "Working simple code beats theoretically better complex code"
 
----
-
-**UserDO: Because building working applications shouldn't require a PhD in distributed systems.** 🚀
+UserDO: A base class for building applications without unnecessary complexity.
