@@ -2,6 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { z } from 'zod';
 import jwt, { JwtData } from '@tsndr/cloudflare-worker-jwt';
 import { UserDODatabase, TableOptions } from './database/index';
+import { Effect, Metric, Logger, Runtime, MetricBoundaries } from 'effect';
 
 // --- User Schema ---
 const UserSchema = z.object({
@@ -36,6 +37,36 @@ const RATE_LIMIT_WINDOW = 60_000; // 1 minute
 
 function isReservedKey(key: string): boolean {
   return key.startsWith(RESERVED_PREFIX);
+}
+
+// --- Internal Effect metrics (not exported)
+const InternalMetrics = {
+  loginAttempts: Metric.counter('userdo_login_attempts'),
+  loginSuccesses: Metric.counter('userdo_login_successes'),
+  signupAttempts: Metric.counter('userdo_signup_attempts'),
+  tokenValidations: Metric.counter('userdo_token_validations'),
+  tableOperations: Metric.counter('userdo_table_operations'),
+  queryDuration: Metric.histogram(
+    'userdo_query_duration_ms',
+    MetricBoundaries.linear({ start: 0, width: 10, count: 60 })
+  ),
+  kvOperations: Metric.counter('userdo_kv_operations'),
+  wsConnections: Metric.gauge('userdo_websocket_connections'),
+  memoryUsage: Metric.gauge('userdo_memory_usage_mb'),
+};
+
+// Internal runtime for Effect execution
+const internalRuntime = Runtime.defaultRuntime;
+
+// Helper to safely execute Effects without disrupting user code
+function trackMetric(effect: Effect.Effect<any, any, any>) {
+  try {
+    Runtime.runFork(internalRuntime)(
+      Effect.catchAll(effect, () => Effect.void) as any
+    );
+  } catch {
+    // Never let metrics break the application
+  }
 }
 
 type JwtPayload = {
@@ -125,6 +156,7 @@ export class UserDO extends DurableObject {
   protected storage: DurableObjectStorage;
   protected env: Env;
   protected database: UserDODatabase;
+  private startTime = Date.now();
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
@@ -136,6 +168,16 @@ export class UserDO extends DurableObject {
       this.getCurrentUserId(),
       this.broadcast.bind(this)
     );
+
+    // Track DO instantiation
+    trackMetric(
+      Effect.logInfo('UserDO instantiated', {
+        doId: state.id.toString(),
+        timestamp: new Date().toISOString(),
+      })
+    );
+
+    this.setupMemoryMonitoring();
   }
 
   private async checkRateLimit(): Promise<void> {
@@ -188,36 +230,58 @@ export class UserDO extends DurableObject {
     token: string;
     refreshToken: string
   }> {
-    email = email.toLowerCase();
-    await this.checkRateLimit();
-    const parsed = SignupSchema.safeParse({ email, password });
-    if (!parsed.success) {
-      throw new Error('Invalid input: ' + JSON.stringify(parsed.error.flatten()));
+    const startTime = Date.now();
+    trackMetric(Metric.increment(InternalMetrics.signupAttempts));
+    try {
+      email = email.toLowerCase();
+      await this.checkRateLimit();
+      const parsed = SignupSchema.safeParse({ email, password });
+      if (!parsed.success) {
+        throw new Error('Invalid input: ' + JSON.stringify(parsed.error.flatten()));
+      }
+      // Check if user already exists
+      const existing = await this.storage.get<User>(AUTH_DATA_KEY);
+      if (existing) throw new Error('Email already registered');
+      const id = this.state.id.toString();
+      const createdAt = new Date().toISOString();
+      const { hash, salt } = await hashPassword(password);
+      const user: User = {
+        id,
+        email,
+        passwordHash: hash,
+        salt,
+        createdAt,
+        refreshTokens: []
+      };
+      await this.storage.put(AUTH_DATA_KEY, user);
+
+      const { token, refreshToken } = await this.generateTokens(user);
+
+      // Store refresh token
+      if (!user.refreshTokens) user.refreshTokens = [];
+      user.refreshTokens.push(refreshToken);
+      await this.storage.put(AUTH_DATA_KEY, user);
+
+      trackMetric(
+        Effect.all([
+          Metric.update(InternalMetrics.queryDuration, Date.now() - startTime),
+          Effect.logInfo('Signup successful', {
+            email,
+            duration: Date.now() - startTime,
+          }),
+        ])
+      );
+
+      return { user, token, refreshToken };
+    } catch (error: any) {
+      trackMetric(
+        Effect.logWarning('Signup failed', {
+          email,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      );
+      throw error;
     }
-    // Check if user already exists
-    const existing = await this.storage.get<User>(AUTH_DATA_KEY);
-    if (existing) throw new Error('Email already registered');
-    const id = this.state.id.toString();
-    const createdAt = new Date().toISOString();
-    const { hash, salt } = await hashPassword(password);
-    const user: User = {
-      id,
-      email,
-      passwordHash: hash,
-      salt,
-      createdAt,
-      refreshTokens: []
-    };
-    await this.storage.put(AUTH_DATA_KEY, user);
-
-    const { token, refreshToken } = await this.generateTokens(user);
-
-    // Store refresh token
-    if (!user.refreshTokens) user.refreshTokens = [];
-    user.refreshTokens.push(refreshToken);
-    await this.storage.put(AUTH_DATA_KEY, user);
-
-    return { user, token, refreshToken };
   }
 
   async login(
@@ -228,25 +292,49 @@ export class UserDO extends DurableObject {
     token: string;
     refreshToken: string
   }> {
-    email = email.toLowerCase();
-    await this.checkRateLimit();
-    const parsed = LoginSchema.safeParse({ email, password });
-    if (!parsed.success) {
-      throw new Error('Invalid input: ' + JSON.stringify(parsed.error.flatten()));
+    const startTime = Date.now();
+    trackMetric(Metric.increment(InternalMetrics.loginAttempts));
+    try {
+      email = email.toLowerCase();
+      await this.checkRateLimit();
+      const parsed = LoginSchema.safeParse({ email, password });
+      if (!parsed.success) {
+        throw new Error('Invalid input: ' + JSON.stringify(parsed.error.flatten()));
+      }
+      const user = await this.storage.get<User>(AUTH_DATA_KEY);
+      if (!user || user.email !== email) throw new Error('Invalid credentials');
+      const ok = await verifyPassword(password, user.salt, user.passwordHash);
+      if (!ok) throw new Error('Invalid credentials');
+
+      const { token, refreshToken } = await this.generateTokens(user);
+
+      // Store refresh token
+      if (!user.refreshTokens) user.refreshTokens = [];
+      user.refreshTokens.push(refreshToken);
+      await this.storage.put(AUTH_DATA_KEY, user);
+
+      trackMetric(
+        Effect.all([
+          Metric.increment(InternalMetrics.loginSuccesses),
+          Metric.update(InternalMetrics.queryDuration, Date.now() - startTime),
+          Effect.logInfo('Login successful', {
+            email,
+            duration: Date.now() - startTime,
+          }),
+        ])
+      );
+
+      return { user, token, refreshToken };
+    } catch (error: any) {
+      trackMetric(
+        Effect.logWarning('Login failed', {
+          email,
+          error: error instanceof Error ? error.message : String(error),
+          duration: Date.now() - startTime,
+        })
+      );
+      throw error;
     }
-    const user = await this.storage.get<User>(AUTH_DATA_KEY);
-    if (!user || user.email !== email) throw new Error('Invalid credentials');
-    const ok = await verifyPassword(password, user.salt, user.passwordHash);
-    if (!ok) throw new Error('Invalid credentials');
-
-    const { token, refreshToken } = await this.generateTokens(user);
-
-    // Store refresh token
-    if (!user.refreshTokens) user.refreshTokens = [];
-    user.refreshTokens.push(refreshToken);
-    await this.storage.put(AUTH_DATA_KEY, user);
-
-    return { user, token, refreshToken };
   }
 
   async raw(): Promise<User> {
@@ -351,9 +439,11 @@ export class UserDO extends DurableObject {
     user?: { id: string; email: string }
     error?: string
   }> {
+    trackMetric(Metric.increment(InternalMetrics.tokenValidations));
     try {
       const verify = await jwt.verify(
-        token, this.env.JWT_SECRET
+        token,
+        this.env.JWT_SECRET
       ) as JwtData<JwtPayload, {}>;
       if (!verify) throw new Error('Invalid token');
       const { payload } = verify;
@@ -366,8 +456,18 @@ export class UserDO extends DurableObject {
       if (payload.sub !== user.id) {
         throw new Error('Token subject mismatch');
       }
+
+      trackMetric(
+        Effect.logDebug('Token verification successful', { userId: user.id })
+      );
+
       return { ok: true, user: { id: user.id, email: user.email } };
-    } catch (err) {
+    } catch (err: any) {
+      trackMetric(
+        Effect.logWarning('Token verification failed', {
+          error: err instanceof Error ? err.message : String(err),
+        })
+      );
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   }
@@ -376,21 +476,47 @@ export class UserDO extends DurableObject {
     key: string,
     value: unknown
   ): Promise<{ ok: boolean }> {
-    if (isReservedKey(key)) throw new Error("Key is reserved");
-    await this.storage.put(key, value);
+    const startTime = Date.now();
+    trackMetric(Metric.increment(InternalMetrics.kvOperations));
+    try {
+      if (isReservedKey(key)) throw new Error('Key is reserved');
+      await this.storage.put(key, value);
 
-    // Broadcast KV change
-    this.broadcast(`kv:${key}`, { key, value });
+      // Broadcast KV change
+      this.broadcast(`kv:${key}`, { key, value });
 
-    return { ok: true };
+      trackMetric(
+        Effect.all([
+          Metric.update(InternalMetrics.queryDuration, Date.now() - startTime),
+          Effect.logDebug('KV set completed', { key, duration: Date.now() - startTime }),
+        ])
+      );
+
+      return { ok: true };
+    } catch (error: any) {
+      trackMetric(
+        Effect.logError('KV set failed', { key, error: error instanceof Error ? error.message : String(error) })
+      );
+      throw error;
+    }
   }
 
   async get(
     key: string
   ): Promise<unknown> {
-    if (isReservedKey(key)) throw new Error("Key is reserved");
-    const value = await this.storage.get(key);
-    return value;
+    const startTime = Date.now();
+    trackMetric(Metric.increment(InternalMetrics.kvOperations));
+    try {
+      if (isReservedKey(key)) throw new Error('Key is reserved');
+      const value = await this.storage.get(key);
+      trackMetric(Metric.update(InternalMetrics.queryDuration, Date.now() - startTime));
+      return value;
+    } catch (error: any) {
+      trackMetric(
+        Effect.logError('KV get failed', { key, error: error instanceof Error ? error.message : String(error) })
+      );
+      throw error;
+    }
   }
 
   async refreshToken(
@@ -456,7 +582,52 @@ export class UserDO extends DurableObject {
     schema: T,
     options?: TableOptions
   ) {
-    return this.database.table(name, schema, options);
+    const originalTable = this.database.table(name, schema, options);
+
+    return new Proxy(originalTable as any, {
+      get: (target, prop, receiver) => {
+        const original = target[prop];
+
+        if (
+          typeof original === 'function' &&
+          ['create', 'update', 'delete', 'findById', 'getAll', 'count'].includes(prop as string)
+        ) {
+          return async (...args: any[]) => {
+            const startTime = Date.now();
+            trackMetric(
+              Metric.increment(InternalMetrics.tableOperations)
+            );
+            try {
+              const result = await original.apply(target, args);
+              trackMetric(
+                Effect.all([
+                  Metric.update(InternalMetrics.queryDuration, Date.now() - startTime),
+                  Effect.logDebug('Table operation completed', {
+                    table: name,
+                    operation: prop as string,
+                    duration: Date.now() - startTime,
+                    resultCount: Array.isArray(result) ? result.length : 1,
+                  }),
+                ])
+              );
+              return result;
+            } catch (error: any) {
+              trackMetric(
+                Effect.logError('Table operation failed', {
+                  table: name,
+                  operation: prop as string,
+                  error: error instanceof Error ? error.message : String(error),
+                  duration: Date.now() - startTime,
+                })
+              );
+              throw error;
+            }
+          };
+        }
+
+        return typeof original === 'function' ? original.bind(target) : original;
+      },
+    });
   }
 
   public get db() {
@@ -471,11 +642,27 @@ export class UserDO extends DurableObject {
   async fetch(request: Request): Promise<Response> {
     // Handle WebSocket upgrades directly in the UserDO
     if (request.headers.get('upgrade') === 'websocket') {
+      trackMetric(
+        Effect.all([
+          Metric.increment(InternalMetrics.wsConnections),
+          Effect.logInfo('WebSocket connection accepted'),
+        ])
+      );
+
       const webSocketPair = new WebSocketPair();
       const [client, server] = Object.values(webSocketPair);
 
       // Use hibernation API - this makes the WebSocket hibernatable
       this.ctx.acceptWebSocket(server);
+
+      server.addEventListener('close', () => {
+        trackMetric(
+          Effect.all([
+            Metric.incrementBy(InternalMetrics.wsConnections, -1),
+            Effect.logInfo('WebSocket connection closed'),
+          ])
+        );
+      });
 
       console.log('🔌 WebSocket accepted by UserDO with hibernation');
 
@@ -537,6 +724,16 @@ export class UserDO extends DurableObject {
         // WebSocket will be automatically cleaned up by runtime
       }
     }
+  }
+
+  // Internal memory monitoring
+  private setupMemoryMonitoring() {
+    setInterval(() => {
+      if (typeof performance !== 'undefined' && (performance as any).memory) {
+        const memoryMB = (performance as any).memory.usedJSHeapSize / 1024 / 1024;
+        trackMetric(Metric.set(InternalMetrics.memoryUsage, memoryMB));
+      }
+    }, 30000);
   }
 
 }

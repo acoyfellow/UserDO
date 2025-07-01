@@ -11,7 +11,8 @@
     "drizzle-orm": "^0.44.2",
     "hono": "^4.7.10",
     "reconnecting-websocket": "^4.4.0",
-    "zod": "^3.25.32"
+    "zod": "^3.25.32",
+    "effect": "^3.7.0"
   },
   "devDependencies": {
     "typescript": "5.8.3",
