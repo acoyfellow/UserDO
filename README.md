@@ -2,14 +2,7 @@
 
 A Durable Object base class for building applications on Cloudflare Workers.
 
-## Philosophy: Simple > Clever
 
-UserDO follows pragmatic coding principles:
-
-- Working simple code > theoretically "better" complex code
-- Every line is a liability - more code = more bugs
-- Don't fix what isn't broken - if it works reliably, resist refactoring
-- Ship then polish - working imperfect code > perfect unshipped code
 
 ## What You Get
 
