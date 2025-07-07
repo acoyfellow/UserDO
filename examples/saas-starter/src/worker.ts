@@ -27,6 +27,9 @@ const app = createUserDOWorker('SAAS_DO');
 
 const stripe = createStripeClient();
 
+const sanitizePrompt = (input: string) =>
+  input.replace(/(system:|assistant:|user:)/gi, '').slice(0, 1000);
+
 const subscribe = async (priceId: string, email: string) => {
   return await stripe.checkout.sessions.create({
     mode: 'subscription',
@@ -51,9 +54,10 @@ app.post('/api/subscribe', async (c: Context) => {
 
 app.post('/api/ask', async (c: Context) => {
   const { prompt } = await c.req.json();
+  const clean = sanitizePrompt(String(prompt));
   const { text } = await generateText({
     model: openai('gpt-4o', { apiKey: c.env.OPENAI_API_KEY }),
-    prompt,
+    prompt: clean,
     system: 'You are a helpful assistant for our SaaS.'
   });
   return c.json({ text });

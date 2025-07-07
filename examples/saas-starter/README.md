@@ -53,5 +53,6 @@ Alchemy will output the deployed Worker URL.
 2. **Alchemy creates your Stripe price** – one line of code, no dashboard needed.
 3. **Checkout uses `createStripeClient()`** – minimal code for subscriptions.
 4. **The `ai` package powers `/api/ask`** – plug in your API key and start selling.
-5. **Infrastructure as code** – Alchemy defines everything in TypeScript.
+5. **Prompts are sanitized** – basic filtering limits prompt injection attacks.
+6. **Infrastructure as code** – Alchemy defines everything in TypeScript.
 
