@@ -24,6 +24,7 @@ export const worker = await Worker("userdo-saas-worker", {
     JWT_SECRET: alchemy.secret(process.env.JWT_SECRET || "dev-secret"),
     STRIPE_API_KEY: alchemy.secret(process.env.STRIPE_API_KEY || ""),
     STRIPE_PRICE_ID: monthly.id,
+    STRIPE_WEBHOOK_SECRET: alchemy.secret(process.env.STRIPE_WEBHOOK_SECRET || ""),
     OPENAI_API_KEY: alchemy.secret(process.env.OPENAI_API_KEY || ""),
   },
 });

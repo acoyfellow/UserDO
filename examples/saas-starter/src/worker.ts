@@ -16,7 +16,11 @@ export class SaaSDO extends UserDO {
   billing = this.table('billing', BillingSchema, { userScoped: true });
 
   async setSubscription(customerId: string, subscriptionId: string) {
-    await this.billing.put('plan', { customerId, subscriptionId, active: true });
+    await this.updateSubscription(customerId, subscriptionId, true);
+  }
+
+  async updateSubscription(customerId: string, subscriptionId: string, active: boolean) {
+    await this.billing.put('plan', { customerId, subscriptionId, active });
   }
 }
 
@@ -36,6 +40,8 @@ const subscribe = async (priceId: string, email: string) => {
     success_url: 'https://example.com/success',
     cancel_url: 'https://example.com/cancel',
     customer_email: email,
+    client_reference_id: email,
+    subscription_data: { metadata: { email } },
     line_items: [{ price: priceId, quantity: 1 }]
   });
 };
@@ -50,6 +56,42 @@ app.post('/api/subscribe', async (c: Context) => {
   );
 
   return c.json({ url: session.url });
+});
+
+app.post('/api/stripe', async (c: Context) => {
+  const signature = c.req.header('stripe-signature') || '';
+  const payload = await c.req.text();
+
+  let event: any;
+  try {
+    event = stripe.webhooks.constructEvent(payload, signature, c.env.STRIPE_WEBHOOK_SECRET);
+  } catch {
+    return c.json({ error: 'Invalid signature' }, 400);
+  }
+
+  switch (event.type) {
+    case 'checkout.session.completed': {
+      const session = event.data.object as any;
+      const email = session.client_reference_id;
+      if (email && session.customer && session.subscription) {
+        const userDO = c.env.SAAS_DO.get(c.env.SAAS_DO.idFromName(email));
+        await userDO.setSubscription(session.customer, session.subscription);
+      }
+      break;
+    }
+    case 'customer.subscription.deleted':
+    case 'customer.subscription.updated': {
+      const sub = event.data.object as any;
+      const email = sub.metadata?.email;
+      if (email) {
+        const userDO = c.env.SAAS_DO.get(c.env.SAAS_DO.idFromName(email));
+        await userDO.updateSubscription(sub.customer, sub.id, sub.status === 'active');
+      }
+      break;
+    }
+  }
+
+  return c.json({ received: true });
 });
 
 app.post('/api/ask', async (c: Context) => {

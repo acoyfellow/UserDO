@@ -7,6 +7,7 @@ A minimal template showing how to combine **UserDO**, **Stripe** payments and **
 - Adding a billing table to store Stripe customer/subscription data
 - Creating a subscription price using Alchemy's Stripe bindings
 - Exposing a `/api/subscribe` endpoint that starts a Stripe Checkout session
+- Handling Stripe webhooks to update subscription status
 - Adding an `/api/ask` AI endpoint powered by the `ai` package
 - Deploying the Worker and Durable Object with Alchemy in a single command
 
@@ -35,6 +36,7 @@ bun install
 export JWT_SECRET="your-jwt-secret"
 export STRIPE_API_KEY="sk_test_..."
 export OPENAI_API_KEY="sk-..."
+export STRIPE_WEBHOOK_SECRET="whsec_..."
 ```
 
 Alchemy will create the subscription price automatically.
@@ -52,7 +54,8 @@ Alchemy will output the deployed Worker URL.
 1. **UserDO handles auth and data** – extend it only where you need business logic.
 2. **Alchemy creates your Stripe price** – one line of code, no dashboard needed.
 3. **Checkout uses `createStripeClient()`** – minimal code for subscriptions.
-4. **The `ai` package powers `/api/ask`** – plug in your API key and start selling.
-5. **Prompts are sanitized** – basic filtering limits prompt injection attacks.
-6. **Infrastructure as code** – Alchemy defines everything in TypeScript.
+4. **Stripe webhooks keep billing in sync** – cancellations immediately disable access.
+5. **The `ai` package powers `/api/ask`** – plug in your API key and start selling.
+6. **Prompts are sanitized** – basic filtering limits prompt injection attacks.
+7. **Infrastructure as code** – Alchemy defines everything in TypeScript.
 

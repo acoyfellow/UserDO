@@ -205,7 +205,7 @@ Functional programming - Integration with Effect library for advanced error hand
 Multiple isolated projects - How to run multiple independent applications using different UserDO binding names.
 
 ### [SaaS Starter](examples/saas-starter/)
-Stripe billing and AI endpoint with one-command Alchemy deployment.
+Stripe billing with webhook updates and an AI endpoint in a one-command Alchemy deployment.
 
 ## Browser Client
 
