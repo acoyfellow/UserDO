@@ -81,30 +81,35 @@ app.post('/api/stripe', async (c: Context) => {
     return c.json({ error: 'Invalid signature' }, 400);
   }
 
-  switch (event.type) {
-    case 'checkout.session.completed': {
-      const session = event.data.object as any;
-      const email = session.client_reference_id;
-      if (email && session.customer && session.subscription) {
-        const userDO = c.env.SAAS_DO.get(c.env.SAAS_DO.idFromName(email));
-        await userDO.setSubscription(
-          session.customer,
-          session.subscription,
-          'active'
-        );
+  try {
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object as any;
+        const email = session.client_reference_id;
+        if (email && session.customer && session.subscription) {
+          const userDO = c.env.SAAS_DO.get(c.env.SAAS_DO.idFromName(email));
+          await userDO.setSubscription(
+            session.customer,
+            session.subscription,
+            'active'
+          );
+        }
+        break;
       }
-      break;
-    }
-    case 'customer.subscription.deleted':
-    case 'customer.subscription.updated': {
-      const sub = event.data.object as any;
-      const email = sub.metadata?.email;
-      if (email) {
-        const userDO = c.env.SAAS_DO.get(c.env.SAAS_DO.idFromName(email));
-        await userDO.updateSubscription(sub.customer, sub.id, sub.status);
+      case 'customer.subscription.deleted':
+      case 'customer.subscription.updated': {
+        const sub = event.data.object as any;
+        const email = sub.metadata?.email;
+        if (email) {
+          const userDO = c.env.SAAS_DO.get(c.env.SAAS_DO.idFromName(email));
+          await userDO.updateSubscription(sub.customer, sub.id, sub.status);
+        }
+        break;
       }
-      break;
     }
+  } catch (err) {
+    console.error('Webhook update failed', err);
+    return c.json({ error: 'Subscription update failed' }, 500);
   }
 
   return c.json({ received: true });
