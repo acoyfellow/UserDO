@@ -15,12 +15,16 @@ const BillingSchema = z.object({
 export class SaaSDO extends UserDO {
   billing = this.table('billing', BillingSchema, { userScoped: true });
 
-  async setSubscription(customerId: string, subscriptionId: string) {
-    await this.updateSubscription(customerId, subscriptionId, true);
+  async setSubscription(customerId: string, subscriptionId: string, status: string) {
+    await this.updateSubscription(customerId, subscriptionId, status);
   }
 
-  async updateSubscription(customerId: string, subscriptionId: string, active: boolean) {
-    await this.billing.put('plan', { customerId, subscriptionId, active });
+  async updateSubscription(customerId: string, subscriptionId: string, status: string) {
+    await this.billing.put('plan', {
+      customerId,
+      subscriptionId,
+      active: isActiveStatus(status)
+    });
   }
 }
 
@@ -32,7 +36,15 @@ const app = createUserDOWorker('SAAS_DO');
 const stripe = createStripeClient();
 
 const sanitizePrompt = (input: string) =>
-  input.replace(/(system:|assistant:|user:)/gi, '').slice(0, 1000);
+  input
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .split(/\n+/)
+    .filter((line) => !/^\s*(system|assistant|user)\s*[:;]/i.test(line))
+    .join(' ')
+    .slice(0, 1000);
+
+const isActiveStatus = (status: string) =>
+  ['active', 'trialing', 'past_due'].includes(status);
 
 const subscribe = async (priceId: string, email: string) => {
   return await stripe.checkout.sessions.create({
@@ -75,7 +87,11 @@ app.post('/api/stripe', async (c: Context) => {
       const email = session.client_reference_id;
       if (email && session.customer && session.subscription) {
         const userDO = c.env.SAAS_DO.get(c.env.SAAS_DO.idFromName(email));
-        await userDO.setSubscription(session.customer, session.subscription);
+        await userDO.setSubscription(
+          session.customer,
+          session.subscription,
+          'active'
+        );
       }
       break;
     }
@@ -85,7 +101,7 @@ app.post('/api/stripe', async (c: Context) => {
       const email = sub.metadata?.email;
       if (email) {
         const userDO = c.env.SAAS_DO.get(c.env.SAAS_DO.idFromName(email));
-        await userDO.updateSubscription(sub.customer, sub.id, sub.status === 'active');
+        await userDO.updateSubscription(sub.customer, sub.id, sub.status);
       }
       break;
     }

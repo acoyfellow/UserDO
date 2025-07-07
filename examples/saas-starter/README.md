@@ -54,8 +54,8 @@ Alchemy will output the deployed Worker URL.
 1. **UserDO handles auth and data** – extend it only where you need business logic.
 2. **Alchemy creates your Stripe price** – one line of code, no dashboard needed.
 3. **Checkout uses `createStripeClient()`** – minimal code for subscriptions.
-4. **Stripe webhooks keep billing in sync** – cancellations immediately disable access.
+4. **Stripe webhooks keep billing in sync** – cancellations immediately disable access and `trialing` or `past_due` states stay active.
 5. **The `ai` package powers `/api/ask`** – plug in your API key and start selling.
-6. **Prompts are sanitized** – basic filtering limits prompt injection attacks.
+6. **Prompts are sanitized** – lines starting with `system:`, `assistant:` or `user:` are stripped to reduce prompt injection.
 7. **Infrastructure as code** – Alchemy defines everything in TypeScript.
 
