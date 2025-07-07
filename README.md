@@ -204,6 +204,9 @@ Functional programming - Integration with Effect library for advanced error hand
 ### [Multi-tenant](examples/multi-tenant/)
 Multiple isolated projects - How to run multiple independent applications using different UserDO binding names.
 
+### [SaaS Starter](examples/saas-starter/)
+Stripe billing and AI endpoint with one-command Alchemy deployment.
+
 ## Browser Client
 
 ```ts
