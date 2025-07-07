@@ -20,6 +20,7 @@ export class SaaSDO extends UserDO {
   }
 
   async updateSubscription(customerId: string, subscriptionId: string, status: string) {
+    BillingSchema.parse({ customerId, subscriptionId, active: true });
     await this.billing.put('plan', {
       customerId,
       subscriptionId,
@@ -46,12 +47,23 @@ const sanitizePrompt = (input: string) =>
 const isActiveStatus = (status: string) =>
   ['active', 'trialing', 'past_due'].includes(status);
 
-const subscribe = async (priceId: string, email: string) => {
+const subscribe = async (
+  priceId: string,
+  email: string,
+  success: string,
+  cancel: string
+) => {
+  const customer = await stripe.customers
+    .create({ email })
+    .catch(async () => {
+      const { data } = await stripe.customers.list({ email, limit: 1 });
+      return data[0];
+    });
   return await stripe.checkout.sessions.create({
     mode: 'subscription',
-    success_url: 'https://example.com/success',
-    cancel_url: 'https://example.com/cancel',
-    customer_email: email,
+    customer: customer.id,
+    success_url: success,
+    cancel_url: cancel,
     client_reference_id: email,
     subscription_data: { metadata: { email } },
     line_items: [{ price: priceId, quantity: 1 }]
@@ -64,7 +76,9 @@ app.post('/api/subscribe', async (c: Context) => {
 
   const session = await subscribe(
     c.env.STRIPE_PRICE_ID,
-    user.email
+    user.email,
+    c.env.SUCCESS_URL,
+    c.env.CANCEL_URL
   );
 
   return c.json({ url: session.url });
@@ -85,7 +99,7 @@ app.post('/api/stripe', async (c: Context) => {
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as any;
-        const email = session.client_reference_id;
+        const email = session.client_reference_id || session.customer_email;
         if (email && session.customer && session.subscription) {
           const userDO = c.env.SAAS_DO.get(c.env.SAAS_DO.idFromName(email));
           await userDO.setSubscription(
@@ -93,6 +107,17 @@ app.post('/api/stripe', async (c: Context) => {
             session.subscription,
             'active'
           );
+          console.log('checkout completed for', email);
+        }
+        break;
+      }
+      case 'customer.subscription.created': {
+        const sub = event.data.object as any;
+        const email = sub.metadata?.email ?? sub.customer_email;
+        if (email) {
+          const userDO = c.env.SAAS_DO.get(c.env.SAAS_DO.idFromName(email));
+          await userDO.setSubscription(sub.customer, sub.id, sub.status);
+          console.log('subscription created for', email);
         }
         break;
       }
@@ -103,6 +128,7 @@ app.post('/api/stripe', async (c: Context) => {
         if (email) {
           const userDO = c.env.SAAS_DO.get(c.env.SAAS_DO.idFromName(email));
           await userDO.updateSubscription(sub.customer, sub.id, sub.status);
+          console.log('subscription updated for', email, sub.status);
         }
         break;
       }
