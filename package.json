@@ -20,9 +20,9 @@
   },
   "exports": {
     ".": {
+      "browser": "./dist/src/client.js",
       "import": "./dist/src/index.js",
-      "require": "./dist/src/index.js",
-      "browser": "./dist/src/client.js"
+      "require": "./dist/src/index.js"
     },
     "./client": {
       "import": "./dist/src/client.js",
