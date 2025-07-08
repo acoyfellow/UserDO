@@ -20,11 +20,12 @@ export class SaaSDO extends UserDO {
   }
 
   async updateSubscription(customerId: string, subscriptionId: string, status: string) {
-    BillingSchema.parse({ customerId, subscriptionId, active: true });
+    const active = isActiveStatus(status);
+    BillingSchema.parse({ customerId, subscriptionId, active });
     await this.billing.put('plan', {
       customerId,
       subscriptionId,
-      active: isActiveStatus(status)
+      active
     });
   }
 }
@@ -36,15 +37,17 @@ const app = createUserDOWorker('SAAS_DO');
 
 const stripe = createStripeClient();
 
-const sanitizePrompt = (input: string) =>
-  input
+const sanitizePrompt = (input: string) => {
+  const collapsed = input
     .replace(/[\u0000-\u001f\u007f]/g, '')
-    // collapse newline tricks like "system\n:"
-    .replace(/\b(system|assistant|user)\s*\n\s*:/gi, '$1:')
-    .split(/\n+/)
-    .filter((line) => !/^\s*(system|assistant|user)\s*[:;]/i.test(line))
+    // collapse whitespace or newlines between prefix and colon
+    .replace(/\b(system|assistant|user)\s*[\n\s]*:/gi, '$1:');
+  return collapsed
+    .split(/\r?\n+/)
+    .filter((line) => !/^\s*(system|assistant|user)\s*:/i.test(line))
     .join(' ')
     .slice(0, 1000);
+};
 
 const isActiveStatus = (status: string) =>
   ['active', 'trialing', 'past_due'].includes(status);
