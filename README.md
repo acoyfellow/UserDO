@@ -286,3 +286,22 @@ client.onChange('table:posts', event => {
 Ready to build? Check out the [examples](examples/) directory for complete applications, or start with the quick start guide above.
 
 For questions and support, open an issue on GitHub.
+
+## ⚠️ Common Setup Issues
+
+### Authentication Fails After Page Refresh
+
+**Symptoms**
+
+- Login appears successful but the user is logged out after a refresh
+- Only the `refreshToken` cookie is set
+
+**Cause**
+
+A mismatch between your Durable Object binding name in `wrangler.json` (or
+`alchemy.run.ts`) and the name passed to `createUserDOWorker()`.
+
+**Fix**
+
+Make sure these names match exactly. You can verify your configuration by
+visiting `/api/userdo/status` in your Worker.

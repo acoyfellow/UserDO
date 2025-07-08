@@ -470,7 +470,17 @@ export function getUserDOFromContext(c: Context, email: string, bindingName: str
   // Use the specified binding name, defaulting to USERDO for backwards compatibility
   const binding = c.env[bindingName];
   if (!binding) {
-    throw new Error(`Durable Object binding '${bindingName}' not found. Make sure it's configured in wrangler.jsonc`);
+    const availableBindings = Object.keys(c.env)
+      .filter(k => {
+        const b = (c.env as any)[k];
+        return b && typeof b === 'object' && 'get' in b && 'idFromName' in b;
+      })
+      .join(', ');
+    throw new Error(
+      `❌ UserDO Configuration Error: Durable Object binding '${bindingName}' not found.\n\n` +
+      `Required: add this binding to your worker configuration:\nbindings: { ${bindingName}: yourDurableObjectNamespace }\n\n` +
+      `Available Durable Object bindings: ${availableBindings}`
+    );
   }
   const userDOID = binding.idFromName(email);
   return binding.get(userDOID) as unknown as UserDO;
@@ -483,6 +493,26 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
 
   // Auth middleware - same clean version as main worker
   app.use('*', createAuthMiddleware(getUserDO, 'createUserDOWorker'));
+
+  // Diagnostic endpoint to verify Durable Object binding configuration
+  app.get('/api/userdo/status', (c) => {
+    const binding = c.env[bindingName];
+    const availableBindings = Object.keys(c.env).filter(k => {
+      const b = (c.env as any)[k];
+      return b && typeof b === 'object' && 'get' in b && 'idFromName' in b;
+    });
+
+    return c.json({
+      package: 'UserDO',
+      bindingName,
+      bindingExists: !!binding,
+      status: binding ? 'ready' : 'misconfigured',
+      availableBindings,
+      message: binding
+        ? `✅ UserDO ready with binding '${bindingName}'`
+        : `❌ Binding '${bindingName}' not found. Available DO bindings: ${availableBindings.join(', ')}`
+    });
+  });
 
   // Copy all the routes from the main app but use the custom getUserDO function
   // API endpoints
