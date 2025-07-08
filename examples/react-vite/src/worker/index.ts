@@ -1,4 +1,4 @@
-import { createUserDOWorker, createWebSocketHandler, getUserDOFromContext, UserDO, type Env, type Table, broadcastToUser } from 'userdo';
+import { createUserDOWorker, createWebSocketHandler, getUserDOFromContext, UserDO, type Env, type Table, broadcastToUser } from 'userdo/server';
 import { z } from 'zod';
 import { Context } from 'hono';
 

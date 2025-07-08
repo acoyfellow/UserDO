@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { UserDO, getUserDO } from "userdo";
+import { UserDO, getUserDO } from "userdo/server";
 import { z } from "zod";
 
 const email = "demo@example.com";

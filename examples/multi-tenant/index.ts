@@ -1,4 +1,4 @@
-import { createUserDOWorker, getUserDOFromContext, UserDO } from 'userdo';
+import { createUserDOWorker, getUserDOFromContext, UserDO } from 'userdo/server';
 import { z } from 'zod';
 
 // Same schema, different tenants

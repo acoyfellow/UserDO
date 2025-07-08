@@ -26,7 +26,7 @@ bun install userdo
 A Durable Object is like a mini-server that lives on Cloudflare's edge. Each user gets their own instance with their own database. You extend `UserDO` to add your business logic:
 
 ```ts
-import { UserDO, type Env } from "userdo";
+import { UserDO, type Env } from "userdo/server";
 import { z } from "zod";
 
 // Define your data schema
@@ -61,7 +61,7 @@ export class BlogDO extends UserDO {
 The Worker handles HTTP requests and routes them to the right user's Durable Object. It comes with built-in auth endpoints and you add your own:
 
 ```ts
-import { createUserDOWorker, createWebSocketHandler } from 'userdo';
+import { createUserDOWorker, createWebSocketHandler } from 'userdo/server';
 
 // Create the HTTP server with built-in auth endpoints
 const app = createUserDOWorker('BLOG_DO');
@@ -207,7 +207,7 @@ Multiple isolated projects - How to run multiple independent applications using 
 ## Browser Client
 
 ```ts
-import { UserDOClient } from 'userdo';
+import { UserDOClient } from 'userdo/client';
 
 const client = new UserDOClient('/api');
 
