@@ -224,6 +224,39 @@ client.onChange('preferences', data => {
 const orgs = await client.get('/organizations');
 ```
 
+### Development Setup with Custom WebSocket URL
+
+For development environments where your frontend and backend run on different ports (e.g., Vite on 5173, Worker on 8787), you can specify a custom WebSocket URL:
+
+```ts
+// Development: Frontend on :5173, Backend on :8787
+const isDev = window.location.port === '5173';
+const client = new UserDOClient('/api', {
+  websocketUrl: isDev ? 'ws://localhost:8787/api/ws' : undefined
+});
+```
+
+This allows:
+- ✅ HTTP requests to use proxied routes (`/api` → `localhost:8787`)
+- ✅ WebSocket connections to connect directly to the worker
+- ✅ No CORS issues for HTTP (handled by proxy)
+- ✅ No proxy complexity for WebSockets
+
+**Benefits:**
+- Solves cross-origin WebSocket issues in development
+- Works with any frontend framework (React, Vue, Svelte, etc.)
+- No complex proxy configuration needed
+- Backwards compatible - existing code continues to work
+
+### Production Usage
+
+In production, omit the `websocketUrl` option for automatic behavior:
+
+```ts
+// Production: Uses current domain for WebSocket connections
+const client = new UserDOClient('/api');
+```
+
 ## Database Operations
 
 ### Simple Tables
@@ -270,8 +303,6 @@ client.onChange('table:posts', event => {
   console.log('Post changed:', event.type, event.data);
 });
 ```
-
-
 
 ## Architecture
 

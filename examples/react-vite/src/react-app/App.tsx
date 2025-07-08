@@ -42,7 +42,13 @@ function App() {
 
     const handleClientLoad = () => {
       setAppState('auth-checking');
-      const userDOClient = new window.UserDOClient('/api');
+
+      // Use custom WebSocket URL for development
+      const isDev = window.location.port === '5173';
+      const userDOClient = new window.UserDOClient('/api', {
+        websocketUrl: isDev ? 'ws://localhost:8787/api/ws' : undefined
+      });
+
       setClient(userDOClient);
 
       // Listen for auth state changes

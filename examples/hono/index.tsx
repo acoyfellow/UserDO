@@ -244,6 +244,12 @@ userDOWorker.get('/', async (c) => {
           // Initialize the UserDO client
           const client = new UserDOClient('/api');
           
+          // For development: uncomment and adjust ports if needed
+          // const isDev = window.location.port === '5173'; // or your dev port
+          // const client = new UserDOClient('/api', {
+          //   websocketUrl: isDev ? 'ws://localhost:8787/api/ws' : undefined
+          // });
+          
           // Update auth status display
           client.onAuthStateChanged(user => {
             const authStatus = document.getElementById('auth-status');
