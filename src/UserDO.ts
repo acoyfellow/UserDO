@@ -2,6 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { z } from 'zod';
 import jwt, { JwtData } from '@tsndr/cloudflare-worker-jwt';
 import { UserDODatabase, TableOptions } from './database/index';
+import { AdminDO } from './AdminDO';
 
 // --- User Schema ---
 const UserSchema = z.object({
@@ -76,6 +77,7 @@ export interface Env {
   JWT_SECRET: string;
   USERDO: DurableObjectNamespace<UserDO>;
   ASSETS?: Fetcher;
+  USER_INDEX?: DurableObjectNamespace<AdminDO>;
 }
 
 // Hash email for use as DO ID to prevent PII leaking in logs
@@ -252,6 +254,17 @@ export class UserDO extends DurableObject {
     user.refreshTokens.push(refreshToken);
     await this.storage.put(AUTH_DATA_KEY, user);
 
+    if (this.env.USER_INDEX) {
+      try {
+        const indexDO = this.env.USER_INDEX.get(
+          this.env.USER_INDEX.idFromName('index')
+        ) as unknown as AdminDO;
+        await indexDO.addUser(user.email);
+      } catch (err) {
+        console.log('Failed to add user to index:', err);
+      }
+    }
+
     return { user, token, refreshToken };
   }
 
@@ -300,7 +313,20 @@ export class UserDO extends DurableObject {
   }
 
   async deleteUser(): Promise<{ ok: boolean }> {
+    const user = await this.storage.get<User>(AUTH_DATA_KEY);
     await this.storage.delete(AUTH_DATA_KEY);
+
+    if (user && this.env.USER_INDEX) {
+      try {
+        const indexDO = this.env.USER_INDEX.get(
+          this.env.USER_INDEX.idFromName('index')
+        ) as unknown as AdminDO;
+        await indexDO.removeUser(user.email);
+      } catch (err) {
+        console.log('Failed to remove user from index:', err);
+      }
+    }
+
     return { ok: true };
   }
 
