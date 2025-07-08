@@ -39,6 +39,8 @@ const stripe = createStripeClient();
 const sanitizePrompt = (input: string) =>
   input
     .replace(/[\u0000-\u001f\u007f]/g, '')
+    // collapse newline tricks like "system\n:"
+    .replace(/\b(system|assistant|user)\s*\n\s*:/gi, '$1:')
     .split(/\n+/)
     .filter((line) => !/^\s*(system|assistant|user)\s*[:;]/i.test(line))
     .join(' ')
@@ -53,12 +55,7 @@ const subscribe = async (
   success: string,
   cancel: string
 ) => {
-  const customer = await stripe.customers
-    .create({ email })
-    .catch(async () => {
-      const { data } = await stripe.customers.list({ email, limit: 1 });
-      return data[0];
-    });
+  const customer = await stripe.customers.create({ email, metadata: { email } });
   return await stripe.checkout.sessions.create({
     mode: 'subscription',
     customer: customer.id,
@@ -99,7 +96,13 @@ app.post('/api/stripe', async (c: Context) => {
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as any;
-        const email = session.client_reference_id || session.customer_email;
+        let email = session.client_reference_id || session.customer_email;
+        if (!email && session.customer) {
+          const cust = await stripe.customers.retrieve(session.customer);
+          if (typeof cust === 'object' && 'email' in cust && cust.email) {
+            email = cust.email as string;
+          }
+        }
         if (email && session.customer && session.subscription) {
           const userDO = c.env.SAAS_DO.get(c.env.SAAS_DO.idFromName(email));
           await userDO.setSubscription(
@@ -113,7 +116,13 @@ app.post('/api/stripe', async (c: Context) => {
       }
       case 'customer.subscription.created': {
         const sub = event.data.object as any;
-        const email = sub.metadata?.email ?? sub.customer_email;
+        let email = sub.metadata?.email ?? sub.customer_email;
+        if (!email && sub.customer) {
+          const cust = await stripe.customers.retrieve(sub.customer);
+          if (typeof cust === 'object' && 'email' in cust && cust.email) {
+            email = cust.email as string;
+          }
+        }
         if (email) {
           const userDO = c.env.SAAS_DO.get(c.env.SAAS_DO.idFromName(email));
           await userDO.setSubscription(sub.customer, sub.id, sub.status);
@@ -124,7 +133,13 @@ app.post('/api/stripe', async (c: Context) => {
       case 'customer.subscription.deleted':
       case 'customer.subscription.updated': {
         const sub = event.data.object as any;
-        const email = sub.metadata?.email;
+        let email = sub.metadata?.email ?? sub.customer_email;
+        if (!email && sub.customer) {
+          const cust = await stripe.customers.retrieve(sub.customer);
+          if (typeof cust === 'object' && 'email' in cust && cust.email) {
+            email = cust.email as string;
+          }
+        }
         if (email) {
           const userDO = c.env.SAAS_DO.get(c.env.SAAS_DO.idFromName(email));
           await userDO.updateSubscription(sub.customer, sub.id, sub.status);
