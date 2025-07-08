@@ -1,0 +1,17 @@
+{
+  "name": "userdo-saas-starter",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "alchemy.run.ts",
+  "scripts": {
+    "deploy": "bun alchemy.run.ts"
+  },
+  "dependencies": {
+    "alchemy": "^0.28.0",
+    "hono": "^4.7.10",
+    "userdo": "latest",
+    "zod": "^3.25.32",
+    "ai": "^4.3.16",
+    "@ai-sdk/openai": "^1.3.22"
+  }
+}
