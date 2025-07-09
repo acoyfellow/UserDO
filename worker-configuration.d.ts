@@ -5,9 +5,10 @@ declare namespace Cloudflare {
 	interface Env {
 		JWT_SECRET: string;
 		CLOUDFLARE_API_TOKEN: string;
-		USERDO: DurableObjectNamespace<import("./src/worker").UserDO>;
-		ASSETS: Fetcher;
-	}
+                USERDO: DurableObjectNamespace<import("./src/worker").UserDO>;
+                ASSETS: Fetcher;
+                USER_INDEX: DurableObjectNamespace<import("./src/AdminDO").AdminDO>;
+        }
 }
 interface Env extends Cloudflare.Env {}
 type StringifyValues<EnvType extends Record<string, unknown>> = {

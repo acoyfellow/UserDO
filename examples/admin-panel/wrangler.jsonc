@@ -1,0 +1,20 @@
+{
+  "name": "userdo-admin-example",
+  "main": "index.ts",
+  "compatibility_date": "2024-04-03",
+  "vars": {
+    "JWT_SECRET": "dev-secret"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "USERDO", "class_name": "UserDO" },
+      { "name": "ADMIN_DO", "class_name": "AdminPanelDO" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["UserDO", "AdminPanelDO"]
+    }
+  ]
+}

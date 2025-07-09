@@ -1,4 +1,5 @@
 export { UserDO, getUserDO, hashEmailForId, migrateUserEmail, type Env } from './UserDO';
+export { AdminDO } from './AdminDO';
 export { UserDODatabase } from './database/index';
 export { GenericTable, type Table } from './database/table';
 export { GenericQuery } from './database/query';
