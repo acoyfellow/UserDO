@@ -27,7 +27,7 @@
     "noUncheckedIndexedAccess": true,
     "types": [
       "@cloudflare/workers-types",
-      "bun-types"
+      "@types/bun"
     ]
   },
   "include": [

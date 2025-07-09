@@ -1,11 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { UserDOClient } from 'userdo/client';
 import './App.css';
 
-// We'll load UserDOClient from the CDN at runtime
-declare global {
-  interface Window {
-    UserDOClient: any;
-  }
+interface User {
+  id: string;
+  email: string;
 }
 
 interface Task {
@@ -17,64 +16,55 @@ interface Task {
 }
 
 function App() {
-  const [client, setClient] = useState<any>(null);
-  const [user, setUser] = useState<any>(null);
+  const clientRef = useRef<UserDOClient | null>(null);
+
+  // Initialize client only once
+  if (!clientRef.current) {
+    // Use custom WebSocket URL for development
+    const isDev = window.location.port === '5173';
+    const wsUrl = isDev ? 'ws://localhost:8787/api/ws' : undefined;
+
+    if (isDev) {
+      console.log('🔧 Development mode - using WebSocket URL:', wsUrl);
+      console.log('🔧 If this fails, try running: npx wrangler dev --port 8787');
+    }
+
+    clientRef.current = new UserDOClient('/api', { websocketUrl: wsUrl });
+  }
+
+  const client = clientRef.current;
+
+  const [user, setUser] = useState<User | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDescription, setNewTaskDescription] = useState('');
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [appState, setAppState] = useState<'loading' | 'client-loading' | 'auth-checking' | 'authenticated' | 'unauthenticated'>('loading');
+  const [appState, setAppState] = useState<'auth-checking' | 'authenticated' | 'unauthenticated'>('auth-checking');
 
   useEffect(() => {
-    setAppState('client-loading');
-
-    // Load UserDO client from CDN
-    const script = document.createElement('script');
-    script.type = 'module';
-    script.innerHTML = `
-      import { UserDOClient } from 'https://unpkg.com/userdo@latest/dist/src/client.bundle.js';
-      window.UserDOClient = UserDOClient;
-      window.dispatchEvent(new Event('userdo-loaded'));
-    `;
-    document.head.appendChild(script);
-
-    const handleClientLoad = () => {
-      setAppState('auth-checking');
-
-      // Use custom WebSocket URL for development
-      const isDev = window.location.port === '5173';
-      const userDOClient = new window.UserDOClient('/api', {
-        websocketUrl: isDev ? 'ws://localhost:8787/api/ws' : undefined
-      });
-
-      setClient(userDOClient);
-
-      // Listen for auth state changes
-      userDOClient.onAuthStateChanged((userData: any) => {
-        setUser(userData);
-        if (userData) {
-          setAppState('authenticated');
-          loadTasks();
-        } else {
-          setAppState('unauthenticated');
-          setTasks([]);
-        }
-      });
+    // Listen for auth state changes
+    const handleAuthChange = (userData: User | null) => {
+      setUser(userData);
+      if (userData) {
+        setAppState('authenticated');
+        loadTasks();
+      } else {
+        setAppState('unauthenticated');
+        setTasks([]);
+      }
     };
 
-    window.addEventListener('userdo-loaded', handleClientLoad);
+    client.onAuthStateChanged(handleAuthChange);
+
     return () => {
-      window.removeEventListener('userdo-loaded', handleClientLoad);
-      document.head.removeChild(script);
+      client.offAuthStateChanged(handleAuthChange);
     };
-  }, []);
+  }, [client]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!client) return;
-
     setLoading(true);
     setAppState('auth-checking');
     try {
@@ -92,8 +82,6 @@ function App() {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!client) return;
-
     setLoading(true);
     setAppState('auth-checking');
     try {
@@ -110,8 +98,6 @@ function App() {
   };
 
   const handleLogout = async () => {
-    if (!client) return;
-
     try {
       await client.logout();
     } catch (error) {
@@ -191,22 +177,6 @@ function App() {
   };
 
   // Loading states with beautiful UI
-  if (appState === 'loading' || appState === 'client-loading') {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="relative">
-            <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">UserDO</h1>
-          <p className="text-gray-600">
-            {appState === 'loading' ? 'Initializing...' : 'Loading client...'}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   if (appState === 'auth-checking') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
