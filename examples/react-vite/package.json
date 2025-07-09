@@ -15,29 +15,30 @@
     "publish": false
   },
   "dependencies": {
-    "hono": "4.8.3",
+    "concurrently": "^9.2.0",
+    "hono": "4.8.4",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "userdo": "link:userdo",
-    "zod": "^3.25.67"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "1.8.0",
-    "@eslint/js": "9.30.0",
+    "@cloudflare/vite-plugin": "1.9.1",
+    "@eslint/js": "9.30.1",
     "@tailwindcss/vite": "^4.1.11",
-    "@types/node": "24.0.8",
+    "@types/node": "24.0.12",
     "@types/react": "19.1.8",
     "@types/react-dom": "19.1.6",
     "@vitejs/plugin-react": "4.6.0",
-    "eslint": "9.30.0",
+    "eslint": "9.30.1",
     "eslint-plugin-react-hooks": "5.2.0",
     "eslint-plugin-react-refresh": "0.4.20",
     "globals": "16.3.0",
     "tailwindcss": "^4.1.11",
     "typescript": "5.8.3",
-    "typescript-eslint": "8.35.1",
-    "vite": "7.0.0",
-    "wrangler": "4.22.x"
+    "typescript-eslint": "8.36.0",
+    "vite": "7.0.3",
+    "wrangler": "4.24.x"
   },
   "scripts": {
     "build": "tsc -b && vite build",
@@ -45,6 +46,8 @@
     "check": "tsc && vite build && wrangler deploy --dry-run",
     "deploy": "wrangler deploy",
     "dev": "vite",
+    "dev:worker": "wrangler dev --port 8787",
+    "dev:all": "concurrently \"npm run dev\" \"npm run dev:worker\"",
     "lint": "eslint .",
     "preview": "npm run build && vite preview"
   },

@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "hono": "^4.7.11",
-    "userdo": "^0.1.39",
+    "userdo": "link:userdo",
     "zod": "^3.25.64"
   },
   "devDependencies": {

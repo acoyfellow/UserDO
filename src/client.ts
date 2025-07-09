@@ -6,6 +6,26 @@ export interface AuthResponse {
   refreshToken: string;
 }
 
+/**
+ * Configuration options for the UserDO client
+ */
+export interface UserDOClientOptions {
+  /**
+   * Custom WebSocket URL for connecting to the WebSocket server.
+   * If not provided, WebSocket URL will be constructed from baseUrl and current location.
+   * 
+   * @example
+   * // Development: Connect WebSocket directly to worker
+   * const client = new UserDOClient("/api", {
+   *   websocketUrl: "ws://localhost:1337/api/ws"
+   * });
+   * 
+   * // Production: Use default behavior
+   * const client = new UserDOClient("/api");
+   */
+  websocketUrl?: string;
+}
+
 type ChangeListener = (data: any) => void;
 
 class UserDOClient {
@@ -13,8 +33,10 @@ class UserDOClient {
   private authListeners = new Set<(user: { id: string; email: string } | null) => void>();
   private ws: ReconnectingWebSocket | null = null;
   private changeListeners = new Map<string, Set<ChangeListener>>();
+  private options: UserDOClientOptions;
 
-  constructor(private baseUrl: string) {
+  constructor(private baseUrl: string, options: UserDOClientOptions = {}) {
+    this.options = options;
     this.checkAuthStatus();
   }
 
@@ -64,12 +86,25 @@ class UserDOClient {
     }
   }
 
+  /**
+   * Builds the WebSocket URL, using custom websocketUrl if provided, 
+   * otherwise falling back to constructing from baseUrl and current location
+   */
+  private buildWebSocketUrl(): string {
+    // Use custom WebSocket URL if provided
+    if (this.options.websocketUrl) {
+      return this.options.websocketUrl;
+    }
+
+    // Default behavior: construct from baseUrl and current location
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${window.location.host}${this.baseUrl}/ws`;
+  }
+
   private connectWebSocket() {
     if (this.ws) return;
 
-    // Build WebSocket URL from current page origin
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}${this.baseUrl}/ws`;
+    const wsUrl = this.buildWebSocketUrl();
 
     console.log('🔌 Connecting to WebSocket:', wsUrl);
 

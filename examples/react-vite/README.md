@@ -91,6 +91,30 @@ The React app automatically connects to the Worker API running on port 8787.
 
 ## 🔧 Key Implementation Details
 
+### Custom WebSocket URL for Development
+
+This example demonstrates UserDO's new custom WebSocket URL feature that solves cross-origin WebSocket issues in development:
+
+```typescript
+// Use custom WebSocket URL for development
+const isDev = window.location.port === '5173';
+const userDOClient = new window.UserDOClient('/api', {
+  websocketUrl: isDev ? 'ws://localhost:8787/api/ws' : undefined
+});
+```
+
+**Why this matters:**
+- ✅ **HTTP requests** use Vite's proxy (`/api` → `localhost:8787`)
+- ✅ **WebSocket connections** connect directly to the worker
+- ✅ **No CORS issues** for HTTP (handled by existing proxy)
+- ✅ **No proxy complexity** for WebSockets
+- ✅ **Production ready** - omit `websocketUrl` for automatic behavior
+
+**Without this feature**, WebSocket connections would fail because:
+- Frontend runs on `localhost:5173`
+- Backend runs on `localhost:8787`
+- WebSocket would try to connect to `ws://localhost:5173/api/ws` (wrong port)
+
 ### UserDO Integration
 
 The example uses UserDO's CDN bundle to avoid Cloudflare Workers import conflicts:
