@@ -316,4 +316,4 @@ client.onChange('table:posts', event => {
 
 Ready to build? Check out the [examples](examples/) directory for complete applications, or start with the quick start guide above.
 
-For questions and support, open an issue on GitHub.
+
