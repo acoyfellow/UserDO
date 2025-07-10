@@ -146,6 +146,67 @@ export async function generateRefreshToken(
 }
 
 /**
+ * Verify tokens with automatic refresh - decodes email from expired access token
+ * @param token - Current access token (may be expired)
+ * @param refreshToken - Refresh token (optional)
+ * @param secret - JWT secret
+ * @returns Verification result with payload and new token if refreshed
+ */
+export async function verifyTokens(
+  token: string,
+  refreshToken: string | undefined,
+  secret: string
+): Promise<{
+  ok: boolean;
+  payload?: JwtPayload;
+  newToken?: string;
+  error?: string;
+}> {
+  // Try current token first
+  const result = await verifyJWT(token, secret);
+  if (result.ok && result.payload) {
+    return { ok: true, payload: result.payload };
+  }
+
+  // If token failed and we have refresh token, try refresh
+  if (refreshToken) {
+    try {
+      // Decode (but don't verify) the expired access token to get email
+      const decodedToken = decodeJWT(token);
+      const email = decodedToken?.email;
+
+      if (!email) {
+        return { ok: false, error: 'Cannot decode email from access token' };
+      }
+
+      const refreshResult = await verifyJWT(refreshToken, secret);
+
+      if (refreshResult.ok && refreshResult.payload) {
+        // Ensure it's a refresh token
+        if (refreshResult.payload.type !== 'refresh') {
+          return { ok: false, error: 'Invalid refresh token type' };
+        }
+
+        const userId = refreshResult.payload.sub;
+
+        // Generate new access token using decoded email
+        const newToken = await generateAccessToken(userId, email, secret);
+
+        return {
+          ok: true,
+          payload: { sub: userId, email },
+          newToken
+        };
+      }
+    } catch (e) {
+      return { ok: false, error: 'Token refresh failed' };
+    }
+  }
+
+  return { ok: false, error: 'Token verification failed' };
+}
+
+/**
  * Generate a UserDO-compatible password reset token
  * @param userId - User ID
  * @param email - User email
