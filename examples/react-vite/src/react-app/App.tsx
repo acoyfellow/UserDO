@@ -20,16 +20,7 @@ function App() {
 
   // Initialize client only once
   if (!clientRef.current) {
-    // Use custom WebSocket URL for development
-    const isDev = window.location.port === '5173';
-    const wsUrl = isDev ? 'ws://localhost:8787/api/ws' : undefined;
-
-    if (isDev) {
-      console.log('🔧 Development mode - using WebSocket URL:', wsUrl);
-      console.log('🔧 If this fails, try running: npx wrangler dev --port 8787');
-    }
-
-    clientRef.current = new UserDOClient('/api', { websocketUrl: wsUrl });
+    clientRef.current = new UserDOClient('/api');
   }
 
   const client = clientRef.current;

@@ -448,7 +448,7 @@ userDOWorker.get('/', async (c) => {
         {!user && <section>
           <form method="post" action="/signup">
             <fieldset>
-              <legend><h2>Sign Up (Server-side)</h2></legend>
+              <legend><h2>Sign Up</h2></legend>
               <label for="signup-email">Email:</label>
               <input id="signup-email" name="email" type="email" placeholder="Email" required /><br />
               <label for="signup-password">Password:</label>
@@ -461,7 +461,7 @@ userDOWorker.get('/', async (c) => {
           </form>
           <form method="post" action="/login">
             <fieldset>
-              <legend><h2>Login (Server-side)</h2></legend>
+              <legend><h2>Login</h2></legend>
               <label for="login-email">Email:</label>
               <input id="login-email" name="email" type="email" placeholder="Email" required /><br />
               <label for="login-password">Password:</label>

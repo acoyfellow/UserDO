@@ -164,6 +164,7 @@ taskWorker.delete("/api/tasks/:id", async (c: Context) => {
 export default {
   async fetch(request: Request, env: any, ctx: any): Promise<Response> {
     if (request.headers.get('upgrade') === 'websocket') {
+      console.log('WebSocket upgrade request');
       return webSocketHandler.fetch(request, env, ctx);
     }
     return taskWorker.fetch(request, env, ctx);

@@ -8,7 +8,6 @@ import {
   PasswordResetRequestSchema,
   PasswordResetConfirmSchema,
   SetDataRequestSchema,
-  type UserDOEndpoints,
   type AuthResponse,
   type ErrorResponse,
   type SuccessResponse,
@@ -20,565 +19,133 @@ type User = {
   email: string;
 }
 
+// --- UTILITIES ---
 const isRequestSecure = (c: Context) => new URL(c.req.url).protocol === 'https:';
 
-// Shared logout handler to avoid duplication
-const handleLogout = (getUserDO: (c: Context, email: string) => UserDO) => async (c: Context) => {
-  try {
-    const token = getCookie(c, 'token') || '';
-    const tokenParts = token.split('.');
-    if (tokenParts.length === 3 && tokenParts[1]) {
-      const payload = JSON.parse(atob(tokenParts[1]));
-      const email = payload.email?.toLowerCase();
-      if (email) {
-        const userDO = getUserDO(c, email);
-        await userDO.logout();
-      }
-    }
-  } catch (e) {
-    console.error('Logout error', e);
-  }
-  deleteCookie(c, 'token');
-  deleteCookie(c, 'refreshToken');
-  return c.redirect('/');
+const setAuthCookies = (c: Context, token: string, refreshToken: string) => {
+  const cookieOptions = {
+    httpOnly: true,
+    secure: isRequestSecure(c),
+    path: '/',
+    sameSite: 'Lax' as const
+  };
+  setCookie(c, 'token', token, cookieOptions);
+  setCookie(c, 'refreshToken', refreshToken, cookieOptions);
 };
 
-const app = new Hono<{ Bindings: Env, Variables: { user: User } }>()
-
-// --- CLEAN AUTH MIDDLEWARE ---
-app.use('/*', createAuthMiddleware((c, email) => getUserDOFromContext(c, email)));
-
-// --- JSON AUTH ENDPOINTS (for client) ---
-app.post('/api/signup', async (c): Promise<Response> => {
-  try {
-    const body = await c.req.json();
-    const { email, password } = SignupRequestSchema.parse(body);
-
-    const userDO = getUserDOFromContext(c, email.toLowerCase());
-    const { user, token, refreshToken } = await userDO.signup({ email: email.toLowerCase(), password });
-
-    setCookie(c, 'token', token, {
-      httpOnly: true,
-      secure: isRequestSecure(c),
-      path: '/',
-      sameSite: 'Lax'
-    });
-    setCookie(c, 'refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: isRequestSecure(c),
-      path: '/',
-      sameSite: 'Lax'
-    });
-
-    const response: AuthResponse = { user, token, refreshToken };
-    return c.json(response);
-  } catch (e: any) {
-    const errorResponse: ErrorResponse = { error: e.message || "Signup error" };
-    return c.json(errorResponse, 400);
-  }
-});
-
-app.post('/api/login', async (c): Promise<Response> => {
-  try {
-    const body = await c.req.json();
-    const { email, password } = LoginRequestSchema.parse(body);
-
-    const userDO = getUserDOFromContext(c, email.toLowerCase());
-    const { user, token, refreshToken } = await userDO.login({ email: email.toLowerCase(), password });
-
-    setCookie(c, 'token', token, {
-      httpOnly: true,
-      secure: isRequestSecure(c),
-      path: '/',
-      sameSite: 'Lax'
-    });
-    setCookie(c, 'refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: isRequestSecure(c),
-      path: '/',
-      sameSite: 'Lax'
-    });
-
-    const response: AuthResponse = { user, token, refreshToken };
-    return c.json(response);
-  } catch (e: any) {
-    const errorResponse: ErrorResponse = { error: e.message || "Login error" };
-    return c.json(errorResponse, 400);
-  }
-});
-
-app.post('/api/logout', async (c): Promise<Response> => {
-  try {
-    const token = getCookie(c, 'token') || '';
-    const tokenParts = token.split('.');
-    if (tokenParts.length === 3 && tokenParts[1]) {
-      const payload = JSON.parse(atob(tokenParts[1]));
-      const email = payload.email?.toLowerCase();
-      if (email) {
-        const userDO = getUserDOFromContext(c, email);
-        await userDO.logout();
-      }
-    }
-  } catch (e) {
-    console.error('Logout error', e);
-  }
+const clearAuthCookies = (c: Context) => {
   deleteCookie(c, 'token');
   deleteCookie(c, 'refreshToken');
+};
 
-  const response: SuccessResponse = { ok: true };
-  return c.json(response);
-});
-
-// Password reset endpoints
-app.post('/api/password-reset/request', async (c): Promise<Response> => {
-  try {
-    const body = await c.req.json();
-    const { email } = PasswordResetRequestSchema.parse(body);
-
-    const userDO = getUserDOFromContext(c, email.toLowerCase());
-    const { resetToken } = await userDO.generatePasswordResetToken();
-
-    // In production, you'd send this token via email
-    // For demo purposes, we'll return it (don't do this in production!)
-    return c.json({
-      ok: true,
-      message: "Reset token generated",
-      resetToken // Remove this in production!
+const parseBody = async (c: Context, schema: any) => {
+  const contentType = c.req.header('content-type') || '';
+  if (contentType.includes('application/json')) {
+    return schema.parse(await c.req.json());
+  } else {
+    const formData = await c.req.formData();
+    const entries: { [key: string]: any } = {};
+    formData.forEach((value, key) => {
+      entries[key] = value;
     });
-  } catch (e: any) {
-    const errorResponse: ErrorResponse = { error: e.message || "Reset request failed" };
-    return c.json(errorResponse, 400);
+    return schema.parse(entries);
   }
-});
+};
 
-app.post('/api/password-reset/confirm', async (c): Promise<Response> => {
-  try {
-    const body = await c.req.json();
-    const { resetToken, newPassword } = PasswordResetConfirmSchema.parse(body);
+const handleError = (e: any, defaultMessage: string) => {
+  const errorResponse: ErrorResponse = { error: e.message || defaultMessage };
+  return { errorResponse, status: 400 as const };
+};
 
-    // Extract email from token to get the right UserDO
-    const tokenParts = resetToken.split('.');
-    if (tokenParts.length !== 3) throw new Error('Invalid token format');
-    const payload = JSON.parse(atob(tokenParts[1]));
-    const email = payload.email?.toLowerCase();
-    if (!email) throw new Error('Invalid token');
-
-    const userDO = getUserDOFromContext(c, email);
-    await userDO.resetPasswordWithToken({ resetToken, newPassword });
-
-    return c.json({ ok: true, message: "Password reset successful" });
-  } catch (e: any) {
-    const errorResponse: ErrorResponse = { error: e.message || "Password reset failed" };
-    return c.json(errorResponse, 400);
-  }
-});
-
-app.get('/api/me', async (c): Promise<Response> => {
+const requireAuth = (c: Context) => {
   const user = c.get('user');
   if (!user) {
-    const errorResponse: ErrorResponse = { error: 'Not authenticated' };
-    return c.json(errorResponse, 401);
+    throw new Error('Not authenticated');
   }
-  return c.json({ user });
-});
+  return user;
+};
 
+// --- ROUTE FACTORY ---
+function createRoutes(getUserDO: (c: Context, email: string) => UserDO) {
+  const routes = new Hono<{ Bindings: Env, Variables: { user: User } }>();
 
+  // Auth middleware
+  routes.use('/*', createAuthMiddleware(getUserDO));
 
-
-
-// --- FORM AUTH ENDPOINTS (for server-side forms) ---
-app.post('/signup', async (c) => {
-  const formData = await c.req.formData()
-  const email = (formData.get('email') as string)?.toLowerCase();
-  const password = formData.get('password') as string
-  if (!email || !password) {
-    return c.json({ error: "Missing fields" }, 400)
-  }
-  const userDO = getUserDOFromContext(c, email);
-  try {
-    const { user, token, refreshToken } = await userDO.signup({ email, password })
-    setCookie(c, 'token', token, {
-      httpOnly: true,
-      secure: isRequestSecure(c),
-      path: '/',
-      sameSite: 'Lax'
-    })
-    setCookie(c, 'refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: isRequestSecure(c),
-      path: '/',
-      sameSite: 'Lax'
-    })
-    return c.redirect('/');
-  } catch (e: any) {
-    return c.json({ error: e.message || "Signup error" }, 400)
-  }
-})
-
-app.post('/login', async (c) => {
-  const formData = await c.req.formData()
-  const email = (formData.get('email') as string)?.toLowerCase();
-  const password = formData.get('password') as string
-  if (!email || !password) {
-    return c.json({ error: "Missing fields" }, 400)
-  }
-  const userDO = getUserDOFromContext(c, email);
-  try {
-    const { user, token, refreshToken } = await userDO.login({ email, password })
-    setCookie(c, 'token', token, {
-      httpOnly: true,
-      secure: isRequestSecure(c),
-      path: '/',
-      sameSite: 'Lax'
-    })
-    setCookie(c, 'refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: isRequestSecure(c),
-      path: '/',
-      sameSite: 'Lax'
-    })
-    return c.redirect('/');
-  } catch (e: any) {
-    return c.json({ error: e.message || "Login error" }, 400)
-  }
-})
-
-// logout - both GET and POST for convenience
-app.get('/logout', handleLogout(getUserDOFromContext));
-app.post('/logout', handleLogout(getUserDOFromContext));
-
-// --- KV STORAGE ENDPOINTS ---
-app.get("/data", async (c): Promise<Response> => {
-  const user = c.get('user');
-  if (!user) {
-    const errorResponse: ErrorResponse = { error: 'Unauthorized' };
-    return c.json(errorResponse, 401);
-  }
-  const userDO = getUserDOFromContext(c, user.email);
-  const result = await userDO.get('data');
-  const response: DataResponse = { ok: true, data: result };
-  return c.json(response);
-});
-
-app.post("/data", async (c): Promise<Response> => {
-  try {
-    const user = c.get('user');
-    if (!user) {
-      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
-      return c.json(errorResponse, 401);
-    }
-
-    let key: string, value: string;
-
-    // Support both JSON and form data
-    const contentType = c.req.header('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const body = await c.req.json();
-      key = body.key;
-      value = body.value;
-    } else {
-      const formData = await c.req.formData();
-      key = formData.get('key') as string;
-      value = formData.get('value') as string;
-    }
-
-    // Validate the data
-    const { key: validKey, value: validValue } = SetDataRequestSchema.parse({ key, value });
-
-    const userDO = getUserDOFromContext(c, user.email);
-    const result = await userDO.set(validKey, validValue);
-    if (!result.ok) {
-      const errorResponse: ErrorResponse = { error: 'Failed to set data' };
-      return c.json(errorResponse, 400);
-    }
-
-    const response: DataResponse = { ok: true, data: { key: validKey, value: validValue } };
-    return c.json(response);
-  } catch (e: any) {
-    const errorResponse: ErrorResponse = { error: e.message || 'Invalid data format' };
-    return c.json(errorResponse, 400);
-  }
-});
-
-// Example protected endpoint
-app.get('/protected/profile', (c): Response => {
-  const user = c.get('user');
-  if (!user) {
-    const errorResponse: ErrorResponse = { error: 'Unauthorized' };
-    return c.json(errorResponse, 401);
-  }
-  return c.json({ ok: true, user });
-});
-
-// --- ORGANIZATION ENDPOINTS ---
-
-// Create organization
-app.post('/api/organizations', async (c): Promise<Response> => {
-  try {
-    const user = c.get('user');
-    if (!user) {
-      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
-      return c.json(errorResponse, 401);
-    }
-
-    let name: string;
-    const contentType = c.req.header('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const body = await c.req.json();
-      name = body.name;
-    } else {
-      const formData = await c.req.formData();
-      name = formData.get('name') as string;
-    }
-
-    if (!name) {
-      const errorResponse: ErrorResponse = { error: 'Organization name is required' };
-      return c.json(errorResponse, 400);
-    }
-
-    const userDO = getUserDOFromContext(c, user.email);
-    const result = await userDO.createOrganization(name);
-
-    if (contentType.includes('application/json')) {
-      return c.json(result);
-    } else {
-      return c.redirect('/organizations');
-    }
-  } catch (e: any) {
-    const errorResponse: ErrorResponse = { error: e.message || 'Failed to create organization' };
-    return c.json(errorResponse, 400);
-  }
-});
-
-// Get user's organizations
-app.get('/api/organizations', async (c): Promise<Response> => {
-  try {
-    const user = c.get('user');
-    if (!user) {
-      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
-      return c.json(errorResponse, 401);
-    }
-
-    const userDO = getUserDOFromContext(c, user.email);
-    const result = await userDO.getOrganizations();
-    return c.json(result);
-  } catch (e: any) {
-    const errorResponse: ErrorResponse = { error: e.message || 'Failed to get organizations' };
-    return c.json(errorResponse, 400);
-  }
-});
-
-// Get specific organization
-app.get('/api/organizations/:id', async (c): Promise<Response> => {
-  try {
-    const user = c.get('user');
-    if (!user) {
-      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
-      return c.json(errorResponse, 401);
-    }
-
-    const organizationId = c.req.param('id');
-    if (!organizationId) {
-      const errorResponse: ErrorResponse = { error: 'Organization ID is required' };
-      return c.json(errorResponse, 400);
-    }
-
-    const userDO = getUserDOFromContext(c, user.email);
-    const result = await userDO.getOrganization(organizationId);
-    return c.json(result);
-  } catch (e: any) {
-    const errorResponse: ErrorResponse = { error: e.message || 'Failed to get organization' };
-    return c.json(errorResponse, 400);
-  }
-});
-
-// Add member to organization
-app.post('/api/organizations/:id/members', async (c): Promise<Response> => {
-  try {
-    const user = c.get('user');
-    if (!user) {
-      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
-      return c.json(errorResponse, 401);
-    }
-
-    const organizationId = c.req.param('id');
-    if (!organizationId) {
-      const errorResponse: ErrorResponse = { error: 'Organization ID is required' };
-      return c.json(errorResponse, 400);
-    }
-
-    let email: string, role: 'admin' | 'member';
-    const contentType = c.req.header('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const body = await c.req.json();
-      email = body.email;
-      role = body.role || 'member';
-    } else {
-      const formData = await c.req.formData();
-      email = formData.get('email') as string;
-      role = (formData.get('role') as 'admin' | 'member') || 'member';
-    }
-
-    if (!email) {
-      const errorResponse: ErrorResponse = { error: 'Email is required' };
-      return c.json(errorResponse, 400);
-    }
-
-    const userDO = getUserDOFromContext(c, user.email);
-    const result = await userDO.addOrganizationMember(organizationId, email.toLowerCase(), role);
-
-    if (contentType.includes('application/json')) {
-      return c.json(result);
-    } else {
-      return c.redirect(`/organizations/${organizationId}`);
-    }
-  } catch (e: any) {
-    const errorResponse: ErrorResponse = { error: e.message || 'Failed to add member' };
-    return c.json(errorResponse, 400);
-  }
-});
-
-// Remove member from organization
-app.delete('/api/organizations/:id/members/:userId', async (c): Promise<Response> => {
-  try {
-    const user = c.get('user');
-    if (!user) {
-      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
-      return c.json(errorResponse, 401);
-    }
-
-    const organizationId = c.req.param('id');
-    const userId = c.req.param('userId');
-
-    if (!organizationId || !userId) {
-      const errorResponse: ErrorResponse = { error: 'Organization ID and User ID are required' };
-      return c.json(errorResponse, 400);
-    }
-
-    const userDO = getUserDOFromContext(c, user.email);
-    const result = await userDO.removeOrganizationMember(organizationId, userId);
-    return c.json(result);
-  } catch (e: any) {
-    const errorResponse: ErrorResponse = { error: e.message || 'Failed to remove member' };
-    return c.json(errorResponse, 400);
-  }
-});
-
-
-// Export utilities for extending the worker
-export function getUserDOFromContext(c: Context, email: string, bindingName: string = 'USERDO'): UserDO {
-  // Use the specified binding name, defaulting to USERDO for backwards compatibility
-  const binding = c.env[bindingName];
-  if (!binding) {
-    throw new Error(`Durable Object binding '${bindingName}' not found. Make sure it's configured in wrangler.jsonc`);
-  }
-  const userDOID = binding.idFromName(email);
-  return binding.get(userDOID) as unknown as UserDO;
-}
-export function createUserDOWorker(bindingName: string = 'USERDO') {
-  const app = new Hono<{ Bindings: Env, Variables: { user: User } }>();
-
-  // Helper function that uses the specified binding name
-  const getUserDO = (c: Context, email: string) => getUserDOFromContext(c, email, bindingName);
-
-  // Auth middleware - same clean version as main worker
-  app.use('*', createAuthMiddleware(getUserDO, 'createUserDOWorker'));
-
-  // Copy all the routes from the main app but use the custom getUserDO function
-  // API endpoints
-  app.post('/api/signup', async (c) => {
+  // --- API ENDPOINTS ---
+  routes.post('/api/signup', async (c) => {
     try {
-      const body = await c.req.json();
-      const { email, password } = SignupRequestSchema.parse(body);
+      const { email, password } = await parseBody(c, SignupRequestSchema);
       const userDO = getUserDO(c, email.toLowerCase());
       const { user, token, refreshToken } = await userDO.signup({ email: email.toLowerCase(), password });
 
-      setCookie(c, 'token', token, {
-        httpOnly: true,
-        secure: isRequestSecure(c),
-        path: '/',
-        sameSite: 'Lax'
-      });
-      setCookie(c, 'refreshToken', refreshToken, {
-        httpOnly: true,
-        secure: isRequestSecure(c),
-        path: '/',
-        sameSite: 'Lax'
-      });
-
+      setAuthCookies(c, token, refreshToken);
       const response: AuthResponse = { user, token, refreshToken };
       return c.json(response);
     } catch (e: any) {
-      const errorResponse: ErrorResponse = { error: e.message || "Signup failed" };
-      return c.json(errorResponse, 400);
+      const { errorResponse, status } = handleError(e, "Signup failed");
+      return c.json(errorResponse, status);
     }
   });
 
-  app.post('/api/login', async (c) => {
+  routes.post('/api/login', async (c) => {
     try {
-      const body = await c.req.json();
-      const { email, password } = LoginRequestSchema.parse(body);
+      const { email, password } = await parseBody(c, LoginRequestSchema);
       const userDO = getUserDO(c, email.toLowerCase());
       const { user, token, refreshToken } = await userDO.login({ email: email.toLowerCase(), password });
 
-      setCookie(c, 'token', token, {
-        httpOnly: true,
-        secure: isRequestSecure(c),
-        path: '/',
-        sameSite: 'Lax'
-      });
-      setCookie(c, 'refreshToken', refreshToken, {
-        httpOnly: true,
-        secure: isRequestSecure(c),
-        path: '/',
-        sameSite: 'Lax'
-      });
-
+      setAuthCookies(c, token, refreshToken);
       const response: AuthResponse = { user, token, refreshToken };
       return c.json(response);
     } catch (e: any) {
-      const errorResponse: ErrorResponse = { error: e.message || "Login failed" };
-      return c.json(errorResponse, 400);
+      const { errorResponse, status } = handleError(e, "Login failed");
+      return c.json(errorResponse, status);
     }
   });
 
-  app.post('/api/logout', async (c) => {
+  routes.post('/api/logout', async (c) => {
     try {
-      const user = c.get('user');
-      if (user) {
-        const userDO = getUserDO(c, user.email);
-        await userDO.logout();
+      const token = getCookie(c, 'token') || '';
+      const tokenParts = token.split('.');
+      if (tokenParts.length === 3 && tokenParts[1]) {
+        const payload = JSON.parse(atob(tokenParts[1]));
+        const email = payload.email?.toLowerCase();
+        if (email) {
+          const userDO = getUserDO(c, email);
+          await userDO.logout();
+        }
       }
     } catch (e) {
       console.error('Logout error', e);
     }
-    deleteCookie(c, 'token');
-    deleteCookie(c, 'refreshToken');
+    clearAuthCookies(c);
     const response: SuccessResponse = { ok: true };
     return c.json(response);
   });
 
-  app.post('/api/password-reset/request', async (c) => {
+  routes.post('/api/password-reset/request', async (c) => {
     try {
-      const body = await c.req.json();
-      const { email } = PasswordResetRequestSchema.parse(body);
+      const { email } = await parseBody(c, PasswordResetRequestSchema);
       const userDO = getUserDO(c, email.toLowerCase());
       const { resetToken } = await userDO.generatePasswordResetToken();
 
-      return c.json({ ok: true, message: "Password reset token generated", resetToken });
+      return c.json({
+        ok: true,
+        message: "Reset token generated",
+        resetToken // Remove this in production!
+      });
     } catch (e: any) {
-      const errorResponse: ErrorResponse = { error: e.message || "Password reset request failed" };
-      return c.json(errorResponse, 400);
+      const { errorResponse, status } = handleError(e, "Password reset request failed");
+      return c.json(errorResponse, status);
     }
   });
 
-  app.post('/api/password-reset/confirm', async (c) => {
+  routes.post('/api/password-reset/confirm', async (c) => {
     try {
-      const body = await c.req.json();
-      const { resetToken, newPassword } = PasswordResetConfirmSchema.parse(body);
+      const { resetToken, newPassword } = await parseBody(c, PasswordResetConfirmSchema);
 
       const tokenParts = resetToken.split('.');
-      if (tokenParts.length !== 3) throw new Error('Invalid reset token');
+      if (tokenParts.length !== 3) throw new Error('Invalid token format');
       const payload = JSON.parse(atob(tokenParts[1]));
       const email = payload.email?.toLowerCase();
       if (!email) throw new Error('Invalid token');
@@ -588,319 +155,224 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
 
       return c.json({ ok: true, message: "Password reset successful" });
     } catch (e: any) {
-      const errorResponse: ErrorResponse = { error: e.message || "Password reset failed" };
-      return c.json(errorResponse, 400);
+      const { errorResponse, status } = handleError(e, "Password reset failed");
+      return c.json(errorResponse, status);
     }
   });
 
-  app.get('/api/me', async (c): Promise<Response> => {
-    const user = c.get('user');
-    if (!user) {
-      const errorResponse: ErrorResponse = { error: 'Not authenticated' };
+  routes.get('/api/me', async (c) => {
+    try {
+      const user = requireAuth(c);
+      return c.json({ user });
+    } catch (e: any) {
+      const { errorResponse } = handleError(e, "Not authenticated");
       return c.json(errorResponse, 401);
     }
-    return c.json({ user });
   });
 
-  // WebSocket endpoint removed - handled at worker level to avoid Hono serialization issues
-
-
-
-
-
-
-
-
-
-  // Form endpoints
-  app.post('/signup', async (c) => {
-    const formData = await c.req.formData()
-    const email = (formData.get('email') as string)?.toLowerCase();
-    const password = formData.get('password') as string
-    if (!email || !password) {
-      return c.json({ error: "Missing fields" }, 400)
-    }
-    const userDO = getUserDO(c, email);
+  // --- FORM ENDPOINTS ---
+  const handleFormAuth = async (c: Context, action: 'signup' | 'login') => {
     try {
-      const { user, token, refreshToken } = await userDO.signup({ email, password })
-      setCookie(c, 'token', token, {
-        httpOnly: true,
-        secure: isRequestSecure(c),
-        path: '/',
-        sameSite: 'Lax'
-      })
-      setCookie(c, 'refreshToken', refreshToken, {
-        httpOnly: true,
-        secure: isRequestSecure(c),
-        path: '/',
-        sameSite: 'Lax'
-      })
+      const formData = await c.req.formData();
+      const email = (formData.get('email') as string)?.toLowerCase();
+      const password = formData.get('password') as string;
+
+      if (!email || !password) {
+        return c.json({ error: "Missing fields" }, 400);
+      }
+
+      const userDO = getUserDO(c, email);
+      const { user, token, refreshToken } = await userDO[action]({ email, password });
+
+      setAuthCookies(c, token, refreshToken);
       return c.redirect('/');
     } catch (e: any) {
-      return c.json({ error: e.message || "Signup error" }, 400)
+      return c.json({ error: e.message || `${action} error` }, 400);
     }
-  })
+  };
 
-  app.post('/login', async (c) => {
-    const formData = await c.req.formData()
-    const email = (formData.get('email') as string)?.toLowerCase();
-    const password = formData.get('password') as string
-    if (!email || !password) {
-      return c.json({ error: "Missing fields" }, 400)
-    }
-    const userDO = getUserDO(c, email);
+  routes.post('/signup', (c) => handleFormAuth(c, 'signup'));
+  routes.post('/login', (c) => handleFormAuth(c, 'login'));
+
+  // Shared logout handler
+  const handleLogout = async (c: Context) => {
     try {
-      const { user, token, refreshToken } = await userDO.login({ email, password })
-      setCookie(c, 'token', token, {
-        httpOnly: true,
-        secure: isRequestSecure(c),
-        path: '/',
-        sameSite: 'Lax'
-      })
-      setCookie(c, 'refreshToken', refreshToken, {
-        httpOnly: true,
-        secure: isRequestSecure(c),
-        path: '/',
-        sameSite: 'Lax'
-      })
-      return c.redirect('/');
-    } catch (e: any) {
-      return c.json({ error: e.message || "Login error" }, 400)
+      const token = getCookie(c, 'token') || '';
+      const tokenParts = token.split('.');
+      if (tokenParts.length === 3 && tokenParts[1]) {
+        const payload = JSON.parse(atob(tokenParts[1]));
+        const email = payload.email?.toLowerCase();
+        if (email) {
+          const userDO = getUserDO(c, email);
+          await userDO.logout();
+        }
+      }
+    } catch (e) {
+      console.error('Logout error', e);
     }
-  })
+    clearAuthCookies(c);
+    return c.redirect('/');
+  };
 
-  // logout - both GET and POST for convenience
-  app.get('/logout', handleLogout(getUserDO));
-  app.post('/logout', handleLogout(getUserDO));
+  routes.get('/logout', handleLogout);
+  routes.post('/logout', handleLogout);
 
-  // Data endpoints
-  app.get("/data", async (c): Promise<Response> => {
-    const user = c.get('user');
-    if (!user) {
-      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+  // --- DATA ENDPOINTS ---
+  routes.get("/data", async (c) => {
+    try {
+      const user = requireAuth(c);
+      const userDO = getUserDO(c, user.email);
+      const result = await userDO.get('data');
+      const response: DataResponse = { ok: true, data: result };
+      return c.json(response);
+    } catch (e: any) {
+      const { errorResponse } = handleError(e, "Unauthorized");
       return c.json(errorResponse, 401);
     }
-    const userDO = getUserDO(c, user.email);
-    const result = await userDO.get('data');
-    const response: DataResponse = { ok: true, data: result };
-    return c.json(response);
   });
 
-  app.post("/data", async (c): Promise<Response> => {
+  routes.post("/data", async (c) => {
     try {
-      const user = c.get('user');
-      if (!user) {
-        const errorResponse: ErrorResponse = { error: 'Unauthorized' };
-        return c.json(errorResponse, 401);
-      }
-
-      let key: string, value: string;
-
-      // Support both JSON and form data
-      const contentType = c.req.header('content-type') || '';
-      if (contentType.includes('application/json')) {
-        const body = await c.req.json();
-        key = body.key;
-
-        value = body.value;
-      } else {
-        const formData = await c.req.formData();
-        key = formData.get('key') as string;
-        value = formData.get('value') as string;
-      }
-
-      const { key: validKey, value: validValue } = SetDataRequestSchema.parse({ key, value });
+      const user = requireAuth(c);
+      const { key, value } = await parseBody(c, SetDataRequestSchema);
 
       const userDO = getUserDO(c, user.email);
-      const result = await userDO.set(validKey, validValue);
+      const result = await userDO.set(key, value);
       if (!result.ok) {
-        const errorResponse: ErrorResponse = { error: 'Failed to set data' };
-        return c.json(errorResponse, 400);
+        throw new Error('Failed to set data');
       }
 
       // Broadcast WebSocket notification for data changes
-      console.log(`🔥 Data changed for ${user.email}: ${validKey} = ${JSON.stringify(validValue)}`);
+      console.log(`🔥 Data changed for ${user.email}: ${key} = ${JSON.stringify(value)}`);
       broadcastToUser(user.email, {
-        event: `kv:${validKey}`,
-        data: { key: validKey, value: validValue },
+        event: `kv:${key}`,
+        data: { key, value },
         timestamp: Date.now()
-      }, bindingName, c.env);
+      }, 'USERDO', c.env);
 
-      const response: DataResponse = { ok: true, data: { key: validKey, value: validValue } };
+      const response: DataResponse = { ok: true, data: { key, value } };
       return c.json(response);
     } catch (e: any) {
-      const errorResponse: ErrorResponse = { error: e.message || 'Invalid data format' };
-      return c.json(errorResponse, 400);
+      const { errorResponse, status } = handleError(e, 'Invalid data format');
+      return c.json(errorResponse, status);
     }
   });
 
-  app.get('/protected/profile', (c): Response => {
-    const user = c.get('user');
-    if (!user) {
-      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+  routes.get('/protected/profile', (c) => {
+    try {
+      const user = requireAuth(c);
+      return c.json({ ok: true, user });
+    } catch (e: any) {
+      const { errorResponse } = handleError(e, "Unauthorized");
       return c.json(errorResponse, 401);
     }
-    return c.json({ ok: true, user });
   });
 
   // --- ORGANIZATION ENDPOINTS ---
-
-  // Create organization
-  app.post('/api/organizations', async (c) => {
+  routes.post('/api/organizations', async (c) => {
     try {
-      const user = c.get('user');
-      if (!user) {
-        const errorResponse: ErrorResponse = { error: 'Unauthorized' };
-        return c.json(errorResponse, 401);
-      }
-
-      let name: string;
-      const contentType = c.req.header('content-type') || '';
-      if (contentType.includes('application/json')) {
-        const body = await c.req.json();
-        name = body.name;
-      } else {
-        const formData = await c.req.formData();
-        name = formData.get('name') as string;
-      }
+      const user = requireAuth(c);
+      const { name } = await parseBody(c, { parse: (data: any) => ({ name: data.name }) });
 
       if (!name) {
-        const errorResponse: ErrorResponse = { error: 'Organization name is required' };
-        return c.json(errorResponse, 400);
+        throw new Error('Organization name is required');
       }
 
       const userDO = getUserDO(c, user.email);
       const result = await userDO.createOrganization(name);
 
+      const contentType = c.req.header('content-type') || '';
       if (contentType.includes('application/json')) {
         return c.json(result);
       } else {
         return c.redirect('/organizations');
       }
     } catch (e: any) {
-      const errorResponse: ErrorResponse = { error: e.message || 'Failed to create organization' };
-      return c.json(errorResponse, 400);
+      const { errorResponse, status } = handleError(e, 'Failed to create organization');
+      return c.json(errorResponse, status);
     }
   });
 
-  // Get user's organizations
-  app.get('/api/organizations', async (c) => {
+  routes.get('/api/organizations', async (c) => {
     try {
-      const user = c.get('user');
-      if (!user) {
-        const errorResponse: ErrorResponse = { error: 'Unauthorized' };
-        return c.json(errorResponse, 401);
-      }
-
+      const user = requireAuth(c);
       const userDO = getUserDO(c, user.email);
       const result = await userDO.getOrganizations();
       return c.json(result);
     } catch (e: any) {
-      const errorResponse: ErrorResponse = { error: e.message || 'Failed to get organizations' };
-      return c.json(errorResponse, 400);
+      const { errorResponse, status } = handleError(e, 'Failed to get organizations');
+      return c.json(errorResponse, status);
     }
   });
 
-  // Get specific organization
-  app.get('/api/organizations/:id', async (c) => {
+  routes.get('/api/organizations/:id', async (c) => {
     try {
-      const user = c.get('user');
-      if (!user) {
-        const errorResponse: ErrorResponse = { error: 'Unauthorized' };
-        return c.json(errorResponse, 401);
-      }
-
+      const user = requireAuth(c);
       const organizationId = c.req.param('id');
       if (!organizationId) {
-        const errorResponse: ErrorResponse = { error: 'Organization ID is required' };
-        return c.json(errorResponse, 400);
+        throw new Error('Organization ID is required');
       }
 
       const userDO = getUserDO(c, user.email);
       const result = await userDO.getOrganization(organizationId);
       return c.json(result);
     } catch (e: any) {
-      const errorResponse: ErrorResponse = { error: e.message || 'Failed to get organization' };
-      return c.json(errorResponse, 400);
+      const { errorResponse, status } = handleError(e, 'Failed to get organization');
+      return c.json(errorResponse, status);
     }
   });
 
-  // Add member to organization
-  app.post('/api/organizations/:id/members', async (c) => {
+  routes.post('/api/organizations/:id/members', async (c) => {
     try {
-      const user = c.get('user');
-      if (!user) {
-        const errorResponse: ErrorResponse = { error: 'Unauthorized' };
-        return c.json(errorResponse, 401);
-      }
-
+      const user = requireAuth(c);
       const organizationId = c.req.param('id');
       if (!organizationId) {
-        const errorResponse: ErrorResponse = { error: 'Organization ID is required' };
-        return c.json(errorResponse, 400);
+        throw new Error('Organization ID is required');
       }
 
-      let email: string, role: 'admin' | 'member';
-      const contentType = c.req.header('content-type') || '';
-      if (contentType.includes('application/json')) {
-        const body = await c.req.json();
-        email = body.email;
-        role = body.role || 'member';
-      } else {
-        const formData = await c.req.formData();
-        email = formData.get('email') as string;
-        role = (formData.get('role') as 'admin' | 'member') || 'member';
-      }
+      const { email, role = 'member' } = await parseBody(c, {
+        parse: (data: any) => ({ email: data.email, role: data.role || 'member' })
+      });
 
       if (!email) {
-        const errorResponse: ErrorResponse = { error: 'Email is required' };
-        return c.json(errorResponse, 400);
+        throw new Error('Email is required');
       }
 
       const userDO = getUserDO(c, user.email);
       const result = await userDO.addOrganizationMember(organizationId, email.toLowerCase(), role);
 
+      const contentType = c.req.header('content-type') || '';
       if (contentType.includes('application/json')) {
         return c.json(result);
       } else {
         return c.redirect(`/organizations/${organizationId}`);
       }
     } catch (e: any) {
-      const errorResponse: ErrorResponse = { error: e.message || 'Failed to add member' };
-      return c.json(errorResponse, 400);
+      const { errorResponse, status } = handleError(e, 'Failed to add member');
+      return c.json(errorResponse, status);
     }
   });
 
-  // Remove member from organization
-  app.delete('/api/organizations/:id/members/:userId', async (c) => {
+  routes.delete('/api/organizations/:id/members/:userId', async (c) => {
     try {
-      const user = c.get('user');
-      if (!user) {
-        const errorResponse: ErrorResponse = { error: 'Unauthorized' };
-        return c.json(errorResponse, 401);
-      }
-
+      const user = requireAuth(c);
       const organizationId = c.req.param('id');
       const userId = c.req.param('userId');
 
       if (!organizationId || !userId) {
-        const errorResponse: ErrorResponse = { error: 'Organization ID and User ID are required' };
-        return c.json(errorResponse, 400);
+        throw new Error('Organization ID and User ID are required');
       }
 
       const userDO = getUserDO(c, user.email);
       const result = await userDO.removeOrganizationMember(organizationId, userId);
       return c.json(result);
     } catch (e: any) {
-      const errorResponse: ErrorResponse = { error: e.message || 'Failed to remove member' };
-      return c.json(errorResponse, 400);
+      const { errorResponse, status } = handleError(e, 'Failed to remove member');
+      return c.json(errorResponse, status);
     }
   });
 
-  // Note: Generic collection endpoints removed - apps should implement specific routes
-  // like /api/posts, /api/comments, etc. for proper database integration
-
-  app.get('/api/docs', async (c) => {
+  routes.get('/api/docs', async (c) => {
     return c.json({
       name: 'UserDO',
       version: '0.1.37',
@@ -909,19 +381,30 @@ export function createUserDOWorker(bindingName: string = 'USERDO') {
         auth: ['/api/signup', '/api/login', '/api/logout', '/api/me'],
         data: ['/data'],
         organizations: ['/api/organizations', '/api/organizations/:id', '/api/organizations/:id/members'],
-        collections: ['/api/:collection'],
         passwordReset: ['/api/password-reset/request', '/api/password-reset/confirm']
       },
       docs: 'https://github.com/acoyfellow/userdo'
     });
   });
 
-  return app;
+  return routes;
 }
 
-// Helper to broadcast to user's WebSocket connections via UserDO
+// --- MAIN EXPORTS ---
+export function getUserDOFromContext(c: Context, email: string, bindingName: string = 'USERDO'): UserDO {
+  const binding = c.env[bindingName];
+  if (!binding) {
+    throw new Error(`Durable Object binding '${bindingName}' not found. Make sure it's configured in wrangler.jsonc`);
+  }
+  const userDOID = binding.idFromName(email);
+  return binding.get(userDOID) as unknown as UserDO;
+}
+
+export function createUserDOWorker(bindingName: string = 'USERDO') {
+  return createRoutes((c, email) => getUserDOFromContext(c, email, bindingName));
+}
+
 export function broadcastToUser(email: string, message: any, bindingName: string = 'USERDO', env: any) {
-  // Get the UserDO and call its broadcast method
   const binding = env[bindingName];
   if (!binding) {
     console.error(`Durable Object binding '${bindingName}' not found`);
@@ -931,23 +414,19 @@ export function broadcastToUser(email: string, message: any, bindingName: string
   const userDOID = binding.idFromName(email);
   const userDO = binding.get(userDOID);
 
-  // Call the UserDO's broadcast method (this will be async but we don't await it)
   userDO.broadcast(message.event, message.data).catch((error: any) => {
     console.error('Failed to broadcast to UserDO:', error);
   });
 }
 
-// Separate WebSocket handler factory
 export function createWebSocketHandler(bindingName: string = 'USERDO') {
   return {
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
       const url = new URL(request.url);
 
-      // Only handle WebSocket upgrades
       if (url.pathname === '/api/ws' && request.headers.get('upgrade') === 'websocket') {
         console.log('🔌 WebSocket upgrade request received');
 
-        // Parse cookies for authentication
         const cookieHeader = request.headers.get('cookie') || '';
         const cookies = Object.fromEntries(
           cookieHeader.split(';')
@@ -962,7 +441,6 @@ export function createWebSocketHandler(bindingName: string = 'USERDO') {
           return new Response('Unauthorized', { status: 401 });
         }
 
-        // Decode JWT to get email
         try {
           const parts = token.split('.');
           if (parts.length !== 3) throw new Error('Invalid token format');
@@ -974,7 +452,6 @@ export function createWebSocketHandler(bindingName: string = 'USERDO') {
 
           console.log(`🔌 WebSocket auth successful for: ${email}`);
 
-          // Delegate WebSocket handling to the UserDO using hibernation API
           const binding = (env as any)[bindingName];
           if (!binding) {
             throw new Error(`Durable Object binding '${bindingName}' not found`);
@@ -983,7 +460,6 @@ export function createWebSocketHandler(bindingName: string = 'USERDO') {
           const userDOID = binding.idFromName(email);
           const userDO = binding.get(userDOID);
 
-          // Forward the WebSocket upgrade request to the UserDO
           return userDO.fetch(request);
 
         } catch (error) {
@@ -992,13 +468,14 @@ export function createWebSocketHandler(bindingName: string = 'USERDO') {
         }
       }
 
-      // Not a WebSocket request
       return new Response('Not Found', { status: 404 });
     }
   };
 }
 
-// Export the UserDO class for Wrangler and the complete worker with all auth routes
+// Create main app and export
+const app = createRoutes(getUserDOFromContext);
+
 export { UserDO };
 export { app as userDOWorker };
 export default app;
