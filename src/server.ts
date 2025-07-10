@@ -1,7 +1,8 @@
-export { UserDO, getUserDO, hashEmailForId, migrateUserEmail, type Env } from './UserDO';
-export { UserDODatabase } from './database/index';
-export { GenericTable, type Table } from './database/table';
-export { GenericQuery } from './database/query';
+export { UserDO, getUserDO, hashEmailForId, migrateUserEmail, type Env } from './UserDO.js';
+export { UserDODatabase } from './database/index.js';
+export { GenericTable, type Table } from './database/table.js';
+export { GenericQuery } from './database/query.js';
+export { UserDOClient } from './client.js';
 
 // JWT utilities
 export {
@@ -14,10 +15,10 @@ export {
   generateRefreshToken,
   generatePasswordResetToken,
   type JwtPayload
-} from './jwt-utils';
+} from './jwt-utils.js';
 
 // Worker exports
-export { userDOWorker, createUserDOWorker, createWebSocketHandler, getUserDOFromContext, broadcastToUser } from './worker';
-export { createAuthMiddleware } from './authMiddleware';
-export type { UserDOEndpoints, EndpointRequest, EndpointResponse, EndpointQuery } from './worker-types';
-export * from './worker-types';
+export { userDOWorker, createUserDOWorker, createWebSocketHandler, getUserDOFromContext, broadcastToUser } from './worker.js';
+export { createAuthMiddleware } from './authMiddleware.js';
+export type { UserDOEndpoints, EndpointRequest, EndpointResponse, EndpointQuery } from './worker-types.js';
+export * from './worker-types.js';
