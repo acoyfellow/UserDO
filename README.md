@@ -224,6 +224,52 @@ client.onChange('preferences', data => {
 const orgs = await client.get('/organizations');
 ```
 
+## JWT Utilities
+
+UserDO provides JWT utilities that match the internal token handling, so you don't need to reimplement JWT logic in your applications:
+
+```ts
+import { 
+  verifyJWT, 
+  decodeJWT, 
+  isTokenExpired, 
+  getEmailFromToken,
+  generateAccessToken,
+  generateRefreshToken,
+  generatePasswordResetToken,
+  type JwtPayload 
+} from 'userdo/server';
+
+// Verify JWT with secret
+const { ok, payload, error } = await verifyJWT(token, process.env.JWT_SECRET);
+if (ok) {
+  console.log('Valid token for:', payload.email);
+}
+
+// Decode JWT without verification (useful for extracting info)
+const payload = decodeJWT(token);
+if (payload) {
+  console.log('Token email:', payload.email);
+}
+
+// Check if token is expired
+const isExpired = isTokenExpired(payload);
+
+// Extract email from token
+const email = getEmailFromToken(token);
+
+// Generate tokens (matches UserDO internal format)
+const accessToken = await generateAccessToken(userId, email, secret);
+const refreshToken = await generateRefreshToken(userId, secret);
+const resetToken = await generatePasswordResetToken(userId, email, secret);
+```
+
+These utilities are particularly useful for:
+- **SvelteKit/Next.js middleware**: Verify tokens in server-side code
+- **Custom authentication flows**: Generate tokens outside of UserDO
+- **Token validation**: Check token validity without calling UserDO
+- **Email extraction**: Get user email from tokens for routing
+
 ### Development Setup with Custom WebSocket URL
 
 For development environments where your frontend and backend run on different ports (e.g., Vite on 5173, Worker on 8787), you can specify a custom WebSocket URL:

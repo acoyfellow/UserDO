@@ -4,6 +4,19 @@ export { GenericTable, type Table } from "./database/table";
 export { GenericQuery } from "./database/query";
 export { UserDOClient } from "./client";
 
+// JWT utilities
+export {
+  decodeJWT,
+  verifyJWT,
+  isTokenExpired,
+  getEmailFromToken,
+  signJWT,
+  generateAccessToken,
+  generateRefreshToken,
+  generatePasswordResetToken,
+  type JwtPayload
+} from "./jwt-utils";
+
 // Worker exports
 export { userDOWorker, createUserDOWorker, createWebSocketHandler, getUserDOFromContext, broadcastToUser } from "./worker";
 export { createAuthMiddleware } from "./authMiddleware";
