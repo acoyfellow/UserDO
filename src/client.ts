@@ -37,13 +37,70 @@ class UserDOClient {
 
   constructor(private baseUrl: string, options: UserDOClientOptions = {}) {
     this.options = options;
+
+    // Log cookie domain configuration for debugging
+    const cookieDomain = this.autoDetectCookieDomain();
+    if (cookieDomain) {
+      console.log('🍪 UserDO will use cookie domain:', cookieDomain);
+    }
+
     this.checkAuthStatus();
   }
 
   private get headers() {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
+
+    // Automatically handle cross-subdomain cookies
+    const cookieDomain = this.autoDetectCookieDomain();
+    if (cookieDomain) {
+      headers["X-Cookie-Domain"] = cookieDomain;
+    }
+
     // Cookies are automatically sent with requests, no need to manually add Authorization header
     return headers;
+  }
+
+  /**
+   * Auto-detect if we're in a cross-subdomain scenario and return the root domain
+   */
+  private autoDetectCookieDomain(): string | null {
+    try {
+      // If no baseUrl or it's relative, we're on the same domain
+      if (!this.baseUrl.startsWith('http')) {
+        return null;
+      }
+
+      const apiUrl = new URL(this.baseUrl);
+      const currentHost = window.location.hostname;
+      const apiHost = apiUrl.hostname;
+
+      // If hosts are the same, no cross-domain issue
+      if (currentHost === apiHost) {
+        return null;
+      }
+
+      // Check if they share a common root domain
+      const currentParts = currentHost.split('.');
+      const apiParts = apiHost.split('.');
+
+      // Need at least 2 parts for a valid domain (e.g., example.com)
+      if (currentParts.length < 2 || apiParts.length < 2) {
+        return null;
+      }
+
+      // Check if the last 2 parts match (e.g., example.com)
+      const currentRoot = currentParts.slice(-2).join('.');
+      const apiRoot = apiParts.slice(-2).join('.');
+
+      if (currentRoot === apiRoot) {
+        return `.${currentRoot}`; // Return with leading dot for cross-subdomain access
+      }
+
+      return null;
+    } catch (error) {
+      console.warn('Failed to auto-detect cookie domain:', error);
+      return null;
+    }
   }
 
   private async checkAuthStatus() {
