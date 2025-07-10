@@ -1,8 +1,8 @@
 import { Hono, Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { cors } from 'hono/cors'
-import { createAuthMiddleware } from './authMiddleware'
-import { UserDO, type Env } from './UserDO'
+import { createAuthMiddleware } from './authMiddleware.js'
+import { UserDO, type Env } from './UserDO.js'
 import {
   SignupRequestSchema,
   LoginRequestSchema,
@@ -13,7 +13,7 @@ import {
   type ErrorResponse,
   type SuccessResponse,
   type DataResponse,
-} from './worker-types'
+} from './worker-types.js'
 
 type User = {
   id: string;

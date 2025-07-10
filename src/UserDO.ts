@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { z } from 'zod';
 import jwt, { JwtData } from '@tsndr/cloudflare-worker-jwt';
-import { UserDODatabase, TableOptions } from './database/index';
+import { UserDODatabase, TableOptions } from './database/index.js';
 
 // --- User Schema ---
 const UserSchema = z.object({

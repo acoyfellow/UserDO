@@ -1,6 +1,6 @@
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import type { Context, Next } from 'hono'
-import type { UserDO } from './UserDO'
+import type { UserDO } from './UserDO.js'
 
 const isRequestSecure = (c: Context) => new URL(c.req.url).protocol === 'https:'
 

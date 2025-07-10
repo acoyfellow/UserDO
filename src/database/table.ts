@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { GenericQuery } from './query';
+import { GenericQuery } from './query.js';
 
 // Type alias for better DX
 export type Table<T = any> = GenericTable<T>;

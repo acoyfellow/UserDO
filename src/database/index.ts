@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { GenericTable } from './table';
+import { GenericTable } from './table.js';
 
 export interface TableOptions {
   userScoped?: boolean;
