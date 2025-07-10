@@ -36,6 +36,10 @@
     "./worker": {
       "import": "./dist/src/worker.js",
       "require": "./dist/src/worker.js"
+    },
+    "./jwt": {
+      "import": "./dist/src/jwt-utils.js",
+      "require": "./dist/src/jwt-utils.js"
     }
   },
   "bugs": {
