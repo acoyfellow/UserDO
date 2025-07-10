@@ -1,5 +1,6 @@
 import { Hono, Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
+import { cors } from 'hono/cors'
 import { createAuthMiddleware } from './authMiddleware'
 import { UserDO, type Env } from './UserDO'
 import {
@@ -68,6 +69,14 @@ const requireAuth = (c: Context) => {
 // --- ROUTE FACTORY ---
 function createRoutes(getUserDO: (c: Context, email: string) => UserDO) {
   const routes = new Hono<{ Bindings: Env, Variables: { user: User } }>();
+
+  // CORS middleware (must come before auth middleware)
+  routes.use('/*', cors({
+    origin: (origin) => origin, // Allow all origins in development
+    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowHeaders: ['Content-Type', 'Authorization'],
+    credentials: true, // Allow cookies
+  }));
 
   // Auth middleware
   routes.use('/*', createAuthMiddleware(getUserDO));
