@@ -189,6 +189,10 @@ const { memberOrganizations } = await userDO.getOrganizations();
 ### [React + Vite](examples/react-vite/)
 Modern React application with Vite - Full-stack task management app with authentication, real-time updates, and beautiful Tailwind UI. Shows proper Vite/Wrangler development workflow.
 
+### [Vue + Vite](examples/vue-vite/)
+Modern Vue application with Vite - Task management app showing the same features as the React example.
+
+
 ### [Organizations](examples/organizations/) 
 Complete team project management system - Organizations → Projects → Tasks with member management, role-based access control, and real-time collaboration.
 
