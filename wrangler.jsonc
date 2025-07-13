@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "userdo",
-  "main": "src/worker.tsx",
+  "main": "src/main-worker.ts",
   "compatibility_date": "2025-04-01",
   "compatibility_flags": [
     "nodejs_compat"
@@ -30,6 +30,28 @@
   "vars": {
     "JWT_SECRET": "your-jwt-secret"
   },
+  "r2_buckets": [
+    {
+      "binding": "DOCUMENTS",
+      "bucket_name": "chatbot-documents"
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  },
+  "vectorize": [
+    {
+      "binding": "VECTORIZE",
+      "index_name": "document-embeddings"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "chatbot-db",
+      "database_id": "your-database-id"
+    }
+  ],
   "observability": {
     "enabled": true
   }

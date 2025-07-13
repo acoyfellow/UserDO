@@ -1,0 +1,28 @@
+Smart Document Chatbot - Sample Document
+
+This is a sample document to demonstrate the capabilities of the Smart Document Chatbot built with Cloudflare Workers, TypeScript, and Effect.
+
+Key Features:
+- Document Upload: Users can upload text documents
+- AI-Powered Chat: Ask questions about uploaded documents
+- Vector Embeddings: Documents are converted to embeddings for semantic search
+- RAG Implementation: Retrieval-Augmented Generation provides contextual responses
+- Effect Integration: Functional programming patterns with comprehensive error handling
+
+Technical Architecture:
+The system uses Cloudflare Workers as the runtime environment, with R2 for document storage and Vectorize for embedding storage. The AI model used for embeddings is BGE-base-en-v1.5, which provides high-quality semantic representations of text.
+
+Example Questions to Ask:
+1. What are the key features of this chatbot?
+2. How does the RAG implementation work?
+3. What technologies are used in the architecture?
+4. What AI model is used for embeddings?
+5. Where are documents stored?
+
+Usage Instructions:
+1. Upload this document or any text file
+2. Wait for processing to complete
+3. Start asking questions about the content
+4. The chatbot will provide answers based on the document content
+
+This system demonstrates how modern AI can be integrated with edge computing platforms to create responsive, intelligent document processing systems.

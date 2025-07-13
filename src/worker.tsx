@@ -3,6 +3,7 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { cors } from 'hono/cors'
 import { createAuthMiddleware } from './authMiddleware.js'
 import { UserDO, type Env } from './UserDO.js'
+import { createChatbotRoutes } from './chatbot-routes.js'
 import {
   SignupRequestSchema,
   LoginRequestSchema,
@@ -390,7 +391,8 @@ function createRoutes(getUserDO: (c: Context, email: string) => UserDO) {
         auth: ['/api/signup', '/api/login', '/api/logout', '/api/me'],
         data: ['/data'],
         organizations: ['/api/organizations', '/api/organizations/:id', '/api/organizations/:id/members'],
-        passwordReset: ['/api/password-reset/request', '/api/password-reset/confirm']
+        passwordReset: ['/api/password-reset/request', '/api/password-reset/confirm'],
+        chatbot: ['/api/chat', '/api/documents/upload', '/api/chat/history/:userId', '/api/documents/:userId']
       },
       docs: 'https://github.com/acoyfellow/userdo'
     });

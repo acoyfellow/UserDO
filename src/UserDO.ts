@@ -76,6 +76,11 @@ export interface Env {
   JWT_SECRET: string;
   USERDO: DurableObjectNamespace<UserDO>;
   ASSETS?: Fetcher;
+  OPENAI_API_KEY?: string;
+  DOCUMENTS: R2Bucket;
+  AI: Ai;
+  VECTORIZE: Vectorize;
+  DB: D1Database;
 }
 
 // Hash email for use as DO ID to prevent PII leaking in logs

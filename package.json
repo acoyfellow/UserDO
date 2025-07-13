@@ -13,9 +13,15 @@
     "drizzle-orm": "^0.44.2",
     "hono": "^4.7.10",
     "reconnecting-websocket": "^4.4.0",
-    "zod": "^3.25.32"
+    "zod": "^3.25.32",
+    "effect": "^3.10.0",
+    "openai": "^4.52.7",
+    "@cloudflare/ai": "^1.0.62",
+    "pdf-parse": "^1.1.1",
+    "mammoth": "^1.8.0"
   },
   "devDependencies": {
+    "@types/pdf-parse": "^1.1.5",
     "typescript": "5.8.3",
     "wrangler": "4.17.0"
   },
