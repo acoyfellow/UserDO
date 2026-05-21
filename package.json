@@ -16,6 +16,9 @@
     "zod": "^3.25.32"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.10",
     "typescript": "5.8.3",
     "wrangler": "4.17.0"
   },
